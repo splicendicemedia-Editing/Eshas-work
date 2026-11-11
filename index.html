@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MIRRA — Your Fitting Room, Everywhere</title>
+  <meta name="description" content="MIRRA is a virtual fitting room: measure your body with your phone camera in 30 seconds and try on any outfit in realistic 3D before you buy.">
+  <meta name="theme-color" content="#0b0a0f">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script type="importmap">
+    { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <!-- Loader -->
+  <div id="loader" aria-hidden="true">
+    <div class="loader-inner">
+      <span class="logo-mark big"></span>
+      <p>MIRRA</p>
+      <div class="loader-bar"><i></i></div>
+      <small>Tailoring your fitting room…</small>
+    </div>
+  </div>
+
+  <!-- 3D stage (fixed behind the page) -->
+  <canvas id="scene" aria-hidden="true"></canvas>
+  <div class="scene-fallback" aria-hidden="true"></div>
+  <div class="scene-vignette" aria-hidden="true"></div>
+  <div id="labels" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
+
+  <header class="nav">
+    <a class="logo" href="#top" aria-label="MIRRA home"><span class="logo-mark"></span>MIRRA</a>
+    <nav class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#measure">Measure</a>
+      <a href="#studio">Studio</a>
+      <a href="#brands">For brands</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-actions">
+      <button class="btn btn-small btn-profile" id="profileBtn" type="button">Create profile</button>
+      <a class="btn btn-small hide-sm" href="#waitlist">Join waitlist</a>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- HERO -->
+    <section id="hero" class="hero" data-state="hero">
+      <div class="wrap">
+        <div class="hero-copy">
+          <p class="eyebrow reveal"><span class="pulse"></span>Virtual fitting room · Private beta</p>
+          <h1 class="reveal">Try it on<br><em>before</em> it's yours.</h1>
+          <p class="lead reveal">MIRRA turns your phone camera into a tailor's tape. One 30-second spin builds your exact 3D body — then watch any outfit drape on it, in real fabric, in the right size.</p>
+          <div class="cta reveal">
+            <a class="btn btn-primary" href="#studio">Try the studio
+              <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 10h11m-4-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </a>
+            <a class="btn btn-ghost" href="#measure" data-open-camera>Measure me with my camera</a>
+          </div>
+          <ul class="hero-stats reveal">
+            <li><b>30s</b><span>one-spin body scan</span></li>
+            <li><b>20+</b><span>measurements captured</span></li>
+            <li><b>1 tap</b><span>to swap any outfit</span></li>
+          </ul>
+        </div>
+      </div>
+      <a class="scroll-hint" href="#how"><span></span>Scroll to see how it works</a>
+    </section>
+
+    <!-- STORY: 3D scroll chapters -->
+    <section id="how" class="story">
+      <div class="step" data-state="scan">
+        <div class="wrap">
+          <article class="step-card glass reveal">
+            <span class="step-no">01 — Scan</span>
+            <h2>Spin once.<br><em>Get measured.</em></h2>
+            <p>Prop your phone up, step back and turn slowly. Our body model maps 24 key points and builds a millimetre-level digital twin — no tape, no tailor, no guesswork.</p>
+            <ul class="ticks">
+              <li>Bust, waist, hips, inseam, shoulders & more</li>
+              <li>Works in normal room lighting</li>
+              <li>Processed on your device</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+      <div class="step" data-state="fit">
+        <div class="wrap">
+          <article class="step-card glass reveal">
+            <span class="step-no">02 — Fit</span>
+            <h2>See how it<br><em>really</em> fits.</h2>
+            <p>Every garment is simulated from the brand's real pattern and fabric. See exactly where it's snug, where it flows — and which size to order.</p>
+            <div class="size-rec">
+              <div><small>Recommended size</small><b>M · EU 38</b></div>
+              <div class="ring-meter" style="--p:96"><span>96%</span></div>
+            </div>
+          </article>
+        </div>
+      </div>
+      <div class="step right" data-state="style">
+        <div class="wrap">
+          <article class="step-card glass reveal">
+            <span class="step-no">03 — Style</span>
+            <h2>Change everything<br><em>in a tap.</em></h2>
+            <p>Silk to velvet. Mini to floor-length. Champagne to noir. Swap cuts, colours and fabrics instantly and build looks you'd never risk ordering blind.</p>
+            <div class="mini-swatches" aria-hidden="true">
+              <i style="--c:#6e1427"></i><i style="--c:#d6b58a"></i><i style="--c:#8fb4d9"></i><i style="--c:#0f5a46"></i><i style="--c:#1b1920"></i><i style="--c:#e2a7a2"></i>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- CAMERA MEASUREMENT DEMO -->
+    <section id="measure" class="solid measure">
+      <div class="marquee" aria-hidden="true">
+        <div class="marquee-track">
+          <span>Silk</span><i>✦</i><span>Velvet</span><i>✦</i><span>Linen</span><i>✦</i><span>Crepe</span><i>✦</i><span>Denim</span><i>✦</i><span>Satin</span><i>✦</i><span>Tulle</span><i>✦</i><span>Cashmere</span><i>✦</i>
+          <span>Silk</span><i>✦</i><span>Velvet</span><i>✦</i><span>Linen</span><i>✦</i><span>Crepe</span><i>✦</i><span>Denim</span><i>✦</i><span>Satin</span><i>✦</i><span>Tulle</span><i>✦</i><span>Cashmere</span><i>✦</i>
+        </div>
+      </div>
+      <div class="wrap measure-grid">
+        <div class="measure-copy">
+          <p class="eyebrow reveal">Camera measurement</p>
+          <h2 class="h2 reveal">Your phone is now<br>a <em>tailor's tape.</em></h2>
+          <p class="sub reveal">No measuring tape, no awkward selfies. MIRRA's pose model tracks your body as you turn and turns it into a precise size profile you can use at any store.</p>
+          <ol class="steps-list reveal">
+            <li><b>Prop & step back</b><span>Lean your phone against something, about 2 m away.</span></li>
+            <li><b>Turn slowly</b><span>One full spin. Voice cues guide you through it.</span></li>
+            <li><b>Get your profile</b><span>20+ measurements, saved privately to your wardrobe.</span></li>
+          </ol>
+          <div class="measure-panel glass reveal">
+            <div class="panel-head">
+              <label class="height-input">Your height
+                <input id="heightIn" type="number" value="168" min="130" max="215" inputmode="numeric"> cm
+              </label>
+              <span class="badge" id="mBadge">Live estimate</span>
+            </div>
+            <div class="m-grid" id="mGrid"></div>
+            <div class="panel-foot">
+              <p class="fine">Estimated from your height until you scan. Camera results are beta estimates from body tracking.</p>
+              <button class="btn btn-small" id="saveMeasure" type="button">Save to my profile</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="phone-col reveal">
+          <div class="phone" id="phone">
+            <div class="phone-notch"></div>
+            <div class="phone-screen">
+              <svg class="silhouette" viewBox="0 0 200 400" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                <defs>
+                  <linearGradient id="silFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stop-color="#9d8cff" stop-opacity=".35"/>
+                    <stop offset="1" stop-color="#e2c08d" stop-opacity=".18"/>
+                  </linearGradient>
+                </defs>
+                <circle cx="100" cy="50" r="23" fill="url(#silFill)" stroke="rgba(255,255,255,.25)"/>
+                <path fill="url(#silFill)" stroke="rgba(255,255,255,.25)" d="M90 72 L110 72 L112 86 C128 90 142 92 146 104 L156 168 L162 228 C163 236 154 238 152 230 L142 172 L136 128 L132 150 C130 168 128 180 132 205 C136 228 134 260 128 300 L124 372 C124 382 108 382 108 372 L104 300 L101 236 L99 236 L96 300 L92 372 C92 382 76 382 76 372 L72 300 C66 260 64 228 68 205 C72 180 70 168 68 150 L64 128 L58 172 L48 230 C46 238 37 236 38 228 L44 168 L54 104 C58 92 72 90 88 86 Z"/>
+              </svg>
+              <svg class="pose-overlay" viewBox="0 0 200 400" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                <g class="meas-lines">
+                  <line x1="60" y1="118" x2="140" y2="118"/>
+                  <line x1="69" y1="165" x2="131" y2="165"/>
+                  <line x1="65" y1="208" x2="135" y2="208"/>
+                  <line x1="172" y1="27" x2="172" y2="378" class="hline"/>
+                </g>
+                <g class="bones">
+                  <polyline points="100,50 100,80"/>
+                  <polyline points="58,100 100,80 142,100"/>
+                  <polyline points="58,100 50,168 42,228"/>
+                  <polyline points="142,100 150,168 158,228"/>
+                  <polyline points="100,80 100,200"/>
+                  <polyline points="72,205 128,205"/>
+                  <polyline points="72,205 80,300 84,372"/>
+                  <polyline points="128,205 120,300 116,372"/>
+                </g>
+                <g class="joints">
+                  <circle cx="100" cy="50" r="3"/><circle cx="100" cy="80" r="3"/>
+                  <circle cx="58" cy="100" r="3"/><circle cx="142" cy="100" r="3"/>
+                  <circle cx="50" cy="168" r="3"/><circle cx="150" cy="168" r="3"/>
+                  <circle cx="42" cy="228" r="3"/><circle cx="158" cy="228" r="3"/>
+                  <circle cx="72" cy="205" r="3"/><circle cx="128" cy="205" r="3"/>
+                  <circle cx="80" cy="300" r="3"/><circle cx="120" cy="300" r="3"/>
+                  <circle cx="84" cy="372" r="3"/><circle cx="116" cy="372" r="3"/>
+                </g>
+              </svg>
+              <div class="scanline"></div>
+              <span class="p-tag" data-at="25" style="top:29.5%">Bust <b data-k="bust">—</b></span>
+              <span class="p-tag" data-at="50" style="top:41.2%">Waist <b data-k="waist">—</b></span>
+              <span class="p-tag" data-at="75" style="top:52%">Hips <b data-k="hips">—</b></span>
+              <div class="phone-ui-top"><span class="rec"></span><span id="scanStatus">Scanning</span><span>·</span><span id="scanPct">0%</span></div>
+              <div class="phone-ui-bottom" id="scanCue">Face the camera</div>
+            </div>
+          </div>
+          <button class="btn btn-ghost" id="camBtn" type="button">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 8h3l2-2h6l2 2h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+            <span>Start live body scan</span>
+          </button>
+          <p class="fine center" id="camNote">We never save your picture. The camera is analysed in your browser and deleted as soon as the scan ends.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- LIVE STUDIO -->
+    <section id="studio" class="studio" data-state="studio">
+      <div class="wrap studio-grid">
+        <div class="studio-panel glass reveal">
+          <p class="eyebrow">Live try-on studio</p>
+          <h2 class="h2 sm">Dress your <em>digital twin.</em></h2>
+          <p class="look-name" id="lookName">Silk Slip · Champagne satin silk</p>
+
+          <div class="ctrl"><span class="ctrl-label">Look</span><div class="chips" data-group="style"></div></div>
+          <div class="ctrl"><span class="ctrl-label">Fabric</span><div class="chips" data-group="fabric"></div></div>
+          <div class="ctrl"><span class="ctrl-label">Colour</span><div class="swatches" data-group="color"></div></div>
+          <div class="ctrl"><span class="ctrl-label">Size</span><div class="sizes" data-group="size"></div></div>
+
+          <div class="fit-row">
+            <div class="fit-meter">
+              <div class="fit-bar"><i id="fitFill"></i></div>
+              <span id="fitText">Ideal fit · 96%</span>
+            </div>
+            <label class="toggle"><input type="checkbox" id="heatmap"><span class="tg"></span>Fit heatmap</label>
+          </div>
+
+          <div class="studio-actions">
+            <button class="btn btn-primary" id="saveLook" type="button">Save look</button>
+            <button class="btn btn-ghost" id="randomLook" type="button">Surprise me</button>
+          </div>
+        </div>
+        <div class="drag-zone" id="dragZone" aria-label="Drag to rotate the model">
+          <span class="drag-hint">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2M21 12a9 9 0 0 1-15.5 6.2M18 2v4h-4M6 22v-4h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Drag to rotate
+          </span>
+          <div class="heat-legend" id="heatLegend"><i class="t"></i>Tight<i class="g"></i>Ideal<i class="l"></i>Loose</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FEATURES -->
+    <section id="features" class="solid features">
+      <div class="wrap">
+        <p class="eyebrow reveal">Why MIRRA</p>
+        <h2 class="h2 reveal">A fitting room that<br><em>knows your body.</em></h2>
+        <div class="bento">
+          <article class="card span-2 reveal">
+            <div class="card-ico"><svg viewBox="0 0 24 24"><path d="M3 7h18v10H3zM7 7v4M11 7v6M15 7v4M19 7v6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></div>
+            <h3>One size profile, every brand</h3>
+            <p>Sizes change from label to label. MIRRA translates your body into each brand's own size chart, so "M" always means your M.</p>
+            <div class="brand-table">
+              <div><span>Label A</span><b>M</b></div><div><span>Label B</span><b>EU 38</b></div><div><span>Label C</span><b>UK 10</b></div><div><span>Label D</span><b>S / Tall</b></div>
+            </div>
+          </article>
+          <article class="card reveal">
+            <div class="card-ico"><svg viewBox="0 0 24 24"><path d="M4 18c3-8 5-12 8-12s5 4 8 12M4 18c4-2 12-2 16 0" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></div>
+            <h3>Real fabric physics</h3>
+            <p>Weight, stretch and drape simulated per material — silk swings, denim holds.</p>
+          </article>
+          <article class="card reveal">
+            <div class="card-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 4v16M4 12h16" stroke="currentColor" stroke-width="1.5"/></svg></div>
+            <h3>Fit heatmaps</h3>
+            <p>See tension at a glance: red is tight, green is ideal, blue is loose.</p>
+          </article>
+          <article class="card reveal">
+            <div class="card-ico"><svg viewBox="0 0 24 24"><path d="M5 4h14v16l-7-4-7 4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+            <h3>Your digital wardrobe</h3>
+            <p>Save looks, mix pieces from different stores and share outfits before you buy.</p>
+          </article>
+          <article class="card reveal">
+            <div class="card-ico"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+            <h3>Private by design</h3>
+            <p>Camera frames are processed on-device. Only your measurements are stored — never your images.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- BRANDS -->
+    <section id="brands" class="solid brands">
+      <div class="wrap brands-grid">
+        <div>
+          <p class="eyebrow reveal">For fashion brands</p>
+          <h2 class="h2 reveal">Fewer returns.<br><em>More "it fits."</em></h2>
+          <p class="sub reveal">Size uncertainty is the biggest reason people send clothes back. Add MIRRA to your product pages and let shoppers try before they buy — in their size, on their body.</p>
+          <ul class="ticks big reveal">
+            <li>3D garments generated from your existing patterns</li>
+            <li>One-line embed for Shopify, WooCommerce and custom stores</li>
+            <li>Fit analytics: see which sizes and cuts work for your customers</li>
+          </ul>
+          <a class="btn btn-primary reveal" href="#waitlist">Become a pilot brand</a>
+        </div>
+        <div class="code-card glass reveal">
+          <div class="code-top"><i></i><i></i><i></i><span>product-page.html</span></div>
+<pre><code><span class="c">&lt;!-- Add a "Try it on" button --&gt;</span>
+<span class="t">&lt;script</span> <span class="a">src</span>=<span class="s">"https://cdn.mirra.example/tryon.js"</span>
+        <span class="a">data-sku</span>=<span class="s">"DRS-2041"</span>
+        <span class="a">data-mode</span>=<span class="s">"3d"</span><span class="t">&gt;&lt;/script&gt;</span></code></pre>
+          <div class="code-preview">
+            <div class="mini-product"><span class="mp-img"></span><div><b>Bias-cut slip dress</b><small>Champagne · Satin silk</small></div></div>
+            <span class="btn btn-small">✦ Try it on</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="solid faq">
+      <div class="wrap faq-grid">
+        <div>
+          <p class="eyebrow reveal">FAQ</p>
+          <h2 class="h2 reveal">Good <em>questions.</em></h2>
+        </div>
+        <div class="faq-list reveal">
+          <details open><summary>How accurate are camera measurements?</summary><p>Our goal is tailor-level accuracy (within about 1–2 cm) for key measurements in normal lighting. Wearing fitted clothes during the scan gives the best results.</p></details>
+          <details><summary>Do you store photos or video of me?</summary><p>No. The scan runs on your device and only the resulting measurements are saved to your account. You can delete them at any time.</p></details>
+          <details><summary>Which phones will it work on?</summary><p>Any recent iPhone or Android phone with a front or rear camera. No depth sensor is needed.</p></details>
+          <details><summary>Can I try clothes from any store?</summary><p>You can try any garment from MIRRA partner brands, and save looks across stores in one wardrobe.</p></details>
+          <details><summary>When can I use it?</summary><p>MIRRA is in private beta. Join the waitlist and we'll invite you as soon as a spot opens.</p></details>
+        </div>
+      </div>
+    </section>
+
+    <!-- WAITLIST -->
+    <section id="waitlist" class="solid waitlist">
+      <div class="wrap">
+        <div class="wl-card reveal">
+          <div class="wl-glow" aria-hidden="true"></div>
+          <p class="eyebrow">Early access</p>
+          <h2 class="h1-alt">Step into your<br><em>fitting room.</em></h2>
+          <p class="sub">Be first to scan, try and shop with MIRRA. Coming to iOS & Android.</p>
+          <form class="wl-form" id="wlForm" novalidate>
+            <input type="email" id="wlEmail" placeholder="you@email.com" aria-label="Email address" required>
+            <button class="btn btn-primary" type="submit">Join the waitlist</button>
+          </form>
+          <p class="fine" id="wlMsg">No spam. One email when your invite is ready.</p>
+        </div>
+      </div>
+    </section>
+
+    <footer class="solid footer">
+      <div class="wrap foot-grid">
+        <a class="logo" href="#top"><span class="logo-mark"></span>MIRRA</a>
+        <nav><a href="#how">How it works</a><a href="#studio">Studio</a><a href="#brands">Brands</a><a href="#faq">FAQ</a></nav>
+        <small>© <span id="yr"></span> MIRRA. Concept preview.</small>
+      </div>
+    </footer>
+  </main>
+
+  <!-- Guided live body scan (full screen) -->
+  <div class="scan-stage" id="scanStage" role="dialog" aria-modal="true" aria-label="Live body scan" data-phase="ready">
+    <video id="ssVideo" playsinline muted></video>
+    <canvas id="ssCanvas" aria-hidden="true"></canvas>
+    <div class="ss-shade" aria-hidden="true"></div>
+
+    <header class="ss-top">
+      <div class="ss-brand"><span class="logo-mark"></span>Body scan</div>
+      <ol class="ss-steps">
+        <li>Get ready</li><li>Front</li><li>Side</li><li>Back</li><li>Side</li><li>Done</li>
+      </ol>
+      <div class="ss-actions">
+        <button class="ss-icon on" id="ssVoice" type="button" aria-pressed="true" title="Voice guidance on/off">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+        <button class="btn btn-small ss-stop" id="ssStop" type="button">Stop &amp; delete</button>
+      </div>
+    </header>
+
+    <aside class="ss-card ss-checks" aria-label="Scan precautions">
+      <h4>Precautions <small>checked live</small></h4>
+      <ul>
+        <li data-c="height"><i></i><span>Your height</span><label class="ss-h"><input id="ssHeight" type="number" min="130" max="215" inputmode="numeric" aria-label="Your height in cm"> cm</label></li>
+        <li data-c="body"><i></i><span>Whole body in view<em></em></span></li>
+        <li data-c="distance"><i></i><span>About 2 m from the camera<em></em></span></li>
+        <li data-c="light"><i></i><span>Good, even lighting<em></em></span></li>
+        <li data-c="arms"><i></i><span>Arms slightly away from body<em></em></span></li>
+        <li data-c="still"><i></i><span>Standing still<em></em></span></li>
+      </ul>
+      <p class="ss-tips"><b>For best results:</b> fitted clothes · long hair tied up · plain background · camera at waist height, upright · shoes off</p>
+    </aside>
+
+    <aside class="ss-card ss-live" aria-label="Live measurements">
+      <h4><span class="live-dot"></span>Live measurements</h4>
+      <dl id="ssLiveList"></dl>
+      <p class="ss-legend"><span class="est">~ estimating</span><span class="ok">✓ captured</span></p>
+    </aside>
+
+    <div class="ss-turn" id="ssTurn" aria-hidden="true">
+      <svg viewBox="0 0 120 120">
+        <ellipse cx="60" cy="60" rx="26" ry="15" fill="rgba(157,140,255,.25)" stroke="#9d8cff" stroke-width="2"/>
+        <circle cx="60" cy="60" r="9" fill="#f4efe7"/>
+        <path d="M60 46 l0 -6" stroke="#f4efe7" stroke-width="3" stroke-linecap="round"/>
+        <g class="arc"><path d="M60 14 A46 46 0 0 0 16 66" fill="none" stroke="#e2c08d" stroke-width="4" stroke-linecap="round"/><path d="M8 58 L16 68 L25 58" fill="none" stroke="#e2c08d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></g>
+      </svg>
+      <span>Turn to your left</span>
+    </div>
+
+    <p class="ss-hint" id="ssHint" role="status" aria-live="polite"></p>
+
+    <div class="ss-guide">
+      <div class="ss-ring" id="ssRing"><span id="ssPct"></span></div>
+      <div class="ss-guide-text">
+        <h3 id="ssTitle">Starting…</h3>
+        <p id="ssSub"></p>
+      </div>
+      <button class="ss-skip" id="ssSkip" type="button" hidden>Skip step</button>
+    </div>
+
+    <div class="ss-done" id="ssDone" hidden>
+      <div class="ss-done-card glass">
+        <div class="modal-ico"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h3>Your measurements</h3>
+        <p class="modal-sub">Camera is off — your picture was deleted the moment the scan ended.</p>
+        <dl class="ss-result" id="ssResult"></dl>
+        <p class="fine" id="ssDoneNote"></p>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="ssAgain" type="button">Scan again</button>
+          <button class="btn btn-primary" id="ssSaveProfile" type="button">Save to my profile</button>
+        </div>
+        <button class="ss-close-link" id="ssClose" type="button">Close</button>
+      </div>
+    </div>
+
+    <p class="ss-privacy">
+      <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      Processed in your browser · no picture is saved · the camera turns off when you finish
+    </p>
+  </div>
+
+  <!-- Camera consent -->
+  <div class="modal" id="consentModal" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
+    <div class="modal-card glass">
+      <button class="modal-x" type="button" data-close aria-label="Close">×</button>
+      <div class="modal-ico">
+        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <h3 id="consentTitle">Before we turn on your camera</h3>
+      <p class="modal-sub">MIRRA measures you from a live camera view. Here's exactly what happens to it:</p>
+      <ul class="ticks">
+        <li><span><b>We do not keep your picture.</b> No photo or video is saved — ever.</span></li>
+        <li><span><b>Deleted right after you try it.</b> The camera switches off and every frame is discarded as soon as the scan ends.</span></li>
+        <li><span><b>Stays on your device.</b> Body tracking runs inside your browser. Nothing is uploaded.</span></li>
+        <li><span><b>Only numbers remain</b> — and only if you choose to save them to your profile.</span></li>
+      </ul>
+      <p class="modal-tip">You'll be guided by voice to turn a full circle — <b>front, side, back, side</b> — about 40 seconds. Stand about 2 m away so your head and feet are both in view, in fitted clothes.</p>
+      <label class="check"><input type="checkbox" id="consentAgree"><span class="box"></span>I understand and want to use my camera for this scan</label>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" type="button" data-close>Not now</button>
+        <button class="btn btn-primary" type="button" id="consentAllow" disabled>Allow camera</button>
+      </div>
+      <p class="fine">Your browser will ask for permission next. You can stop the camera at any time.</p>
+    </div>
+  </div>
+
+  <!-- Profile -->
+  <div class="modal" id="profileModal" role="dialog" aria-modal="true" aria-labelledby="pfTitle">
+    <form class="modal-card glass" id="profileForm" novalidate>
+      <button class="modal-x" type="button" data-close aria-label="Close">×</button>
+      <p class="eyebrow">Your MIRRA profile</p>
+      <h3 id="pfTitle">Create your profile</h3>
+      <p class="modal-sub">Save your size once and get the right fit in every store. Profiles hold measurements only — never photos.</p>
+      <div class="pf-fields">
+        <label class="field"><span>Name</span><input id="pfName" type="text" maxlength="60" autocomplete="given-name" placeholder="Your name" required></label>
+        <label class="field"><span>Height (cm)</span><input id="pfHeight" type="number" min="130" max="215" inputmode="numeric"></label>
+      </div>
+      <fieldset class="fit-pref">
+        <legend>How do you like clothes to fit?</legend>
+        <label><input type="radio" name="fit" value="snug"><span>Snug</span></label>
+        <label><input type="radio" name="fit" value="regular" checked><span>Regular</span></label>
+        <label><input type="radio" name="fit" value="relaxed"><span>Relaxed</span></label>
+      </fieldset>
+      <div class="pf-head"><span class="ctrl-label">Measurements</span><span class="badge" id="pfSource">Estimated from your height</span></div>
+      <div class="pf-measures" id="pfMeasures"></div>
+      <div class="pf-rec" id="pfRec"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" type="button" id="pfDelete" hidden>Delete profile</button>
+        <button class="btn btn-primary" type="submit">Save profile</button>
+      </div>
+      <p class="fine">Preview build: your profile is stored only in this browser and can be deleted at any time.</p>
+    </form>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
