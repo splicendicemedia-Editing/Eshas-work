@@ -7,9 +7,9 @@
 //      and only after the person agreed to it on the start card).
 // Photos live in memory only and are wiped on Close.
 
-import { STYLES, COLORS, photoUrl, lookFor } from './catalog.js?v=18';
-import { getLandmarker } from './pose.js?v=18';
-import { TRYON_API, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=18';
+import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=20';
+import { getLandmarker } from './pose.js?v=20';
+import { TRYON_API, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=20';
 
 const $ = (s) => document.querySelector(s);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -22,7 +22,9 @@ const norm = (v) => { const l = len(v); return [v[0] / l, v[1] / l]; };
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
 const GOLD = '#d9b26a';
 // leg widths as a share of shoulder width at hip / knee / ankle
-const LEGS = { shalwar: [0.5, 0.44, 0.17], slim: [0.38, 0.25, 0.17], wide: [0.42, 0.44, 0.52] };
+const LEGS = { shalwar: [0.5, 0.44, 0.17], khuli: [0.5, 0.48, 0.42], kali: [0.62, 0.58, 0.2], slim: [0.38, 0.25, 0.17], pajama: [0.38, 0.25, 0.17],
+  trouser: [0.4, 0.31, 0.27], jeans: [0.4, 0.3, 0.26], wide: [0.42, 0.44, 0.52] };
+const GATHERED = ['shalwar', 'kali']; // full legs gathered in at the ankle
 const HOLD = 22; // still frames before the photo is taken
 const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* blocked */ } } };
 // on a developer machine the server address can be given as ?tryon=<url> for testing
@@ -41,6 +43,10 @@ export function initMirror({ onStage, toast }) {
   let step = 'front', hold = 0, prev = null, stepStart = 0, lum = 140, lastLm = null;
   let photos = { front: null, back: null };   // { canvas, lm, url }
   let side = 'front';
+  let tab = 'women';                             // 'women' | 'men' | 'fabric'
+  let cloth = null;                              // the customer's fabric: { tile, data, avg, id }
+  let stitch = { wearer: 'men', neck: 'gol', bottom: 'shalwar' };
+  const stitched = new Map();                    // fabric + stitching -> stitched suit picture made by the AI
   const results = new Map();                    // `${side}|${style}` -> picture address
   let voiceOk = false, lastSpoken = 0, lastSaid = '';
   const art = document.createElement('canvas'); art.width = art.height = 512;
@@ -55,7 +61,61 @@ export function initMirror({ onStage, toast }) {
   const leftToday = () => Math.max(0, DAILY_LIMIT - used());
 
   /* ---------- pickers ---------- */
-  rail.innerHTML = Object.entries(STYLES).map(([k, v]) => `<button type="button" data-style="${k}"><img src="${photoUrl(k, 124)}" alt="" loading="lazy">${v.label}</button>`).join('');
+  const tabsEl = $('#mrTabs'), fabricEl = $('#mrFabric');
+  function renderRail() {
+    rail.innerHTML = Object.entries(ALL).filter(([, v]) => (v.gender === 'men') === (tab === 'men'))
+      .map(([k, v]) => `<button type="button" data-style="${k}"><img src="${photoUrl(k, 124)}" alt="" loading="lazy">${v.label}</button>`).join('');
+  }
+  function setTab(t) {
+    tab = t; stage.dataset.tab = t;
+    tabsEl.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+    if (tab !== 'fabric') {
+      renderRail();
+      const isMen = ALL[look.style].gender === 'men';
+      setLook(isMen === (tab === 'men') ? look : lookFor(tab === 'men' ? 'm_shalwar' : 'shalwar', look.size));
+    }
+    if (stage.classList.contains('open') && stage.dataset.mode === 'looks') show();
+  }
+  tabsEl.addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
+
+  /* ---------- unstitched fabric: bring a picture, choose the stitching ---------- */
+  const syncStitch = () => fabricEl.querySelectorAll('[data-opt]').forEach((row) => row.querySelectorAll('[data-v]').forEach((b) => b.classList.toggle('active', b.dataset.v === stitch[row.dataset.opt])));
+  fabricEl.querySelectorAll('[data-opt]').forEach((row) => {
+    const k = row.dataset.opt;
+    row.innerHTML = Object.entries(STITCH[k]).map(([v, l]) => `<button type="button" data-v="${v}">${l}</button>`).join('');
+    row.addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; stitch = { ...stitch, [k]: b.dataset.v }; syncStitch(); show(); });
+  });
+  syncStitch();
+  $('#mrFabUpload').addEventListener('click', () => $('#mrFabFile').click());
+  $('#mrFabFile').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (f) loadCloth(URL.createObjectURL(f), true); e.target.value = ''; });
+  $('#mrFabUse').addEventListener('click', () => { const u = $('#mrFabUrl').value.trim(); if (/^https?:\/\//i.test(u)) loadCloth(u, false); else toast('Paste a picture link that starts with https://'); });
+  function loadCloth(src, isBlob) {
+    const load = (url, cors) => new Promise((res, rej) => { const im = new Image(); if (cors) im.crossOrigin = 'anonymous'; im.onload = () => res(im); im.onerror = rej; im.src = url; });
+    (async () => {
+      let im;
+      // a web link is tried directly first; shops that forbid that are fetched through the Miraal server
+      try { im = await load(src, !isBlob); }
+      catch (e) { if (isBlob || !API) throw e; im = await load(`${API}?img=${encodeURIComponent(src)}`, true); }
+      const sc = Math.min(1, 768 / Math.max(im.naturalWidth, im.naturalHeight));
+      const small = document.createElement('canvas'); small.width = Math.max(8, Math.round(im.naturalWidth * sc)); small.height = Math.max(8, Math.round(im.naturalHeight * sc));
+      small.getContext('2d').drawImage(im, 0, 0, small.width, small.height);
+      const data = small.toDataURL('image/jpeg', 0.88);
+      // a seamless tile from the middle of the picture for the drawn preview
+      const tile = document.createElement('canvas'); tile.width = tile.height = 512;
+      const t = tile.getContext('2d'), sq = Math.min(small.width, small.height) * 0.6, sx = (small.width - sq) / 2, sy = (small.height - sq) / 2;
+      for (const [fx, fy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { t.save(); t.translate(fx ? 512 : 0, fy ? 512 : 0); t.scale(fx ? -1 : 1, fy ? -1 : 1); t.drawImage(small, sx, sy, sq, sq, 0, 0, 256, 256); t.restore(); }
+      const one = document.createElement('canvas'); one.width = one.height = 1;
+      const og = one.getContext('2d'); og.drawImage(tile, 0, 0, 1, 1);
+      const [r, g, b] = og.getImageData(0, 0, 1, 1).data;
+      cloth = { tile, data, avg: `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`, id: String(Date.now()) };
+      $('#mrFabThumb').src = data; $('#mrFabThumb').hidden = false;
+      if (isBlob) URL.revokeObjectURL(src);
+      if (stage.dataset.mode === 'looks') show();
+    })().catch(() => { if (isBlob) URL.revokeObjectURL(src); toast('That picture could not be opened. Save it to your phone and upload it instead.'); });
+  }
+  const custom = () => tab === 'fabric';
+  const styleNow = () => (custom() ? stitchedStyle(stitch) : ALL[look.style]);
+  const resultKey = () => (custom() ? `${side}|fabric|${cloth ? cloth.id : ''}|${stitch.wearer}|${stitch.neck}|${stitch.bottom}` : `${side}|${look.style}`);
   colorsEl.innerHTML = Object.entries(COLORS).map(([k, v]) => `<button type="button" data-color="${k}" style="--c:${v.hex}" aria-label="${v.label}" title="${v.label}"></button>`).join('');
   rail.addEventListener('click', (e) => { const b = e.target.closest('[data-style]'); if (b) { setLook(lookFor(b.dataset.style, look.size)); show(); } });
   colorsEl.addEventListener('click', (e) => { const b = e.target.closest('[data-color]'); if (b) { setLook({ ...look, color: b.dataset.color }); show(); } });
@@ -70,8 +130,10 @@ export function initMirror({ onStage, toast }) {
 
   /* ---------- open / close ---------- */
   function setMode(m) { stage.dataset.mode = m; }
-  function open(startLook) {
-    setLook(startLook ? { ...lookFor(startLook.style), ...startLook } : look);
+  function open(startLook, startTab) {
+    if (startLook && !ALL[startLook.style]) startLook = null;
+    if (startLook) look = { ...lookFor(startLook.style), ...startLook };
+    setTab(startTab || (ALL[look.style].gender === 'men' ? 'men' : 'women'));
     stage.classList.add('open'); document.body.classList.add('mirror-open');
     $('#mrPrivacy').innerHTML = API
       ? `<b>Your photo.</b> The preview is made on your device. If you tap <b>See it for real</b>, your photo is sent to our try-on partner (${TRYON_PARTNER}) to make the picture. Miraal does not keep it.`
@@ -88,10 +150,10 @@ export function initMirror({ onStage, toast }) {
   }
   function wipe() {
     for (const p of Object.values(photos)) if (p) { p.canvas.width = p.canvas.height = 0; if (p.url) URL.revokeObjectURL(p.url); }
-    photos = { front: null, back: null }; results.clear(); side = 'front';
+    photos = { front: null, back: null }; results.clear(); stitched.clear(); side = 'front';
     img.removeAttribute('src'); dctx.setTransform(1, 0, 0, 1, 0, 0); dctx.clearRect(0, 0, drawCv.width, drawCv.height);
   }
-  document.querySelectorAll('[data-open-mirror]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); open(); }));
+  document.querySelectorAll('[data-open-mirror]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); open(null, b.dataset.openMirror || null); }));
   $('#mrClose').addEventListener('click', close);
   $('#mrCancel').addEventListener('click', close);
   $('#mrGo').addEventListener('click', () => { unlockSpeech(); startCamera(); });
@@ -131,7 +193,7 @@ export function initMirror({ onStage, toast }) {
     await video.play().catch(() => {});
     statusEl.textContent = 'Getting ready… a few seconds the first time.';
     try {
-      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=18')]);
+      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=20')]);
     } catch (e) {
       console.warn('Try-on could not load', e);
       statusEl.textContent = 'This could not load. Check your internet connection and try again.';
@@ -258,9 +320,10 @@ export function initMirror({ onStage, toast }) {
     if (!photos[side]) side = 'front';
     const p = photos[side];
     if (!p) return;
-    nameEl.textContent = STYLES[look.style].label;
+    const fab = custom();
+    nameEl.textContent = fab ? (cloth ? `${STITCH.wearer[stitch.wearer]} from your fabric` : 'Your own fabric') : ALL[look.style].label;
     sideEl.querySelectorAll('[data-side]').forEach((b) => { b.classList.toggle('active', b.dataset.side === side); b.disabled = !photos[b.dataset.side]; });
-    const real = results.get(`${side}|${look.style}`);
+    const real = results.get(resultKey());
     img.src = real || p.url;
     // size the frame to the photo (2:3) inside the free space
     const availW = stage.clientWidth - 24, availH = stage.clientHeight - 64 - ($('.mr-bottom').offsetHeight || 300) - 8;
@@ -271,10 +334,10 @@ export function initMirror({ onStage, toast }) {
     drawCv.width = Math.round(fw * dpr); drawCv.height = Math.round(fh * dpr);
     dctx.setTransform(1, 0, 0, 1, 0, 0); dctx.clearRect(0, 0, drawCv.width, drawCv.height);
     stage.classList.toggle('is-real', !!real);
-    if (!real && G) { dctx.setTransform(dpr, 0, 0, dpr, 0, 0); paintOutfit(dctx, fw, fh, (i) => [p.lm[i].x * fw, p.lm[i].y * fh], side === 'back'); }
+    if (!real && G && (!fab || cloth)) { dctx.setTransform(dpr, 0, 0, dpr, 0, 0); paintOutfit(dctx, fw, fh, (i) => [p.lm[i].x * fw, p.lm[i].y * fh], side === 'back'); }
     const left = leftToday();
-    subEl.textContent = real ? 'Realistic picture made by AI from your photo' : 'Drawn preview on your photo';
-    realBtn.hidden = !API || !!real;
+    subEl.textContent = fab && !cloth ? 'Add a picture of your fabric below' : real ? 'Realistic picture made by AI from your photo' : 'Drawn preview on your photo';
+    realBtn.hidden = !API || !!real || (fab && !cloth);
     realBtn.disabled = left <= 0;
     realBtn.textContent = left > 0 ? 'See it for real' : 'No real try-ons left today';
     leftEl.textContent = !API ? 'Realistic AI try-on is not switched on yet. This is a drawn preview.'
@@ -284,17 +347,26 @@ export function initMirror({ onStage, toast }) {
   async function makeReal() {
     const p = photos[side];
     if (!API || !p || leftToday() <= 0 || !busy.hidden) return;
-    const key = `${side}|${look.style}`, style = look.style;
+    const fab = custom();
+    if (fab && !cloth) return;
+    const key = resultKey(), sKey = fab ? `${cloth.id}|${stitch.wearer}|${stitch.neck}|${stitch.bottom}` : '';
+    const person = p.canvas.toDataURL('image/jpeg', 0.9);
+    // fabric: the server first stitches a suit from the fabric (kept for the other photo), then puts it on the person
+    const payload = fab
+      ? { person, side, ...(stitched.has(sKey) ? { garment: stitched.get(sKey) } : { fabric: cloth.data, stitch }) }
+      : { person, garment: photoUrl(look.style, 800), style: look.style, side };
+    busy.querySelector('b').textContent = fab && !stitched.has(sKey) ? 'Stitching your suit…' : 'Creating your look…';
+    busy.querySelector('small').textContent = fab && !stitched.has(sKey) ? 'About 40 seconds' : 'About 20 seconds';
     busy.hidden = false; realBtn.disabled = true;
     try {
       const r = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ person: p.canvas.toDataURL('image/jpeg', 0.9), garment: photoUrl(style, 800), style, side }),
+        body: JSON.stringify(payload),
       });
       const data = await r.json().catch(() => ({}));
       if (r.status === 429) { store.set(dayKey(), String(DAILY_LIMIT)); toast('You have used today’s real try-ons'); }
       else if (!r.ok || !data.image) throw new Error(data.error || `Server said ${r.status}`);
-      else { results.set(key, data.image); store.set(dayKey(), String(used() + 1)); }
+      else { results.set(key, data.image); if (fab && data.garment) stitched.set(sKey, data.garment); store.set(dayKey(), String(used() + 1)); }
     } catch (e) {
       console.warn('AI try-on failed', e);
       toast('Could not make the picture. Please try again.');
@@ -305,8 +377,8 @@ export function initMirror({ onStage, toast }) {
 
   async function savePicture() {
     const p = photos[side]; if (!p) return;
-    const real = results.get(`${side}|${look.style}`);
-    const name = `miraal-${look.style}-${side}.jpg`;
+    const real = results.get(resultKey());
+    const name = `miraal-${custom() ? 'my-fabric' : look.style}-${side}.jpg`;
     const download = (blob) => { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000); };
     if (real) {
       try { download(await (await fetch(real)).blob()); } catch { window.open(real, '_blank', 'noopener'); }
@@ -324,7 +396,7 @@ export function initMirror({ onStage, toast }) {
     const key = `${look.style}|${look.pattern}|${look.color}`;
     if (key !== artKey) {
       artKey = key;
-      const p = STYLES[look.style];
+      const p = ALL[look.style];
       G.paintFabric(art.getContext('2d'), 512, 512, hex, look.pattern || 'plain', { circ: 2 * Math.PI * 0.3 * 0.87, len: G.topMax(p) - p.bottom });
       swatch.getContext('2d').drawImage(art, 150, 190, 128, 128, 0, 0, 128, 128); // a border-free piece for sleeves
     }
@@ -332,9 +404,10 @@ export function initMirror({ onStage, toast }) {
   }
 
   function paintOutfit(ctx, cw, ch, P, isBack) {
-    const p = STYLES[look.style];
-    const hex = COLORS[look.color].hex;
-    ensureArt(ctx, hex);
+    const fab = custom() && cloth;
+    const p = styleNow();
+    const hex = fab ? cloth.avg : COLORS[look.color].hex;
+    if (!fab) ensureArt(ctx, hex);
 
     // body frame from the joints
     let L = P(11), R = P(12); if (L[0] > R[0]) [L, R] = [R, L];
@@ -351,7 +424,12 @@ export function initMirror({ onStage, toast }) {
       return add(A, sub(A, K), (-1.08 - y) / 0.6);
     };
     const across = (y) => norm(mix(u, uh, clamp((0.15 - y) / 0.7, 0, 1) * 0.8));
-    const half = (y) => G.garmentBaseR(p, 0.013, y) * (1 + 0.42 * G.bump(y, 0.8, 0.985)) * ux * (y < 0.8 ? 0.93 : 1);
+    const formHalf = (y) => G.garmentBaseR(p, 0.013, y) * (1 + 0.42 * G.bump(y, 0.8, 0.985));
+    // men's cuts fall straight from the chest; women's follow the dress-form shape
+    const half = (y) => (p.cut === 'straight' && y < 0.8 ? 0.352 + (p.flare || 0) * clamp((0.8 - y) / (0.8 - p.bottom), 0, 1) : formHalf(y) * (y < 0.8 ? 0.93 : 1)) * ux;
+    // the customer's own fabric, repeated at a believable print size
+    let clothPat = null;
+    if (fab) { clothPat = ctx.createPattern(cloth.tile, 'repeat'); const k = (1.15 * sw) / 512; clothPat.setTransform(new DOMMatrix().scale(k, k)); }
     const edge = (y, sgn) => add(axis(y), across(y), sgn * half(y));
     const top = G.topMax(p), bot = p.bottom;
     const dark = clamp((150 - lum) / 300, 0, 0.3);  // dim rooms get a darker garment
@@ -376,15 +454,16 @@ export function initMirror({ onStage, toast }) {
     /* trousers (behind the kameez) */
     if (p.trousers) {
       const W = LEGS[p.trousers.kind];
-      const legHex = shade(hex, p.bottom > -0.2 ? 0.0 : 0.08);
+      const legHex = p.trousers.color || shade(hex, p.bottom > -0.2 ? 0.0 : 0.08);
       for (const [h, k, a] of [[23, 25, 27], [24, 26, 28]]) {
         const hip = mix(P(h), Hp, 0.15), knee = P(k), ank = mix(knee, P(a), 0.97);
         const pts = [hip, mix(hip, knee, 0.5), knee, mix(knee, ank, 0.55), mix(knee, ank, 0.9), ank];
-        const w = p.trousers.kind === 'shalwar'
+        const w = GATHERED.includes(p.trousers.kind)
           ? [W[0], W[0] * 1.02, W[1], W[1] * 0.92, W[2] * 1.25, W[2]]
           : [W[0], lerp(W[0], W[1], 0.5), W[1], lerp(W[1], W[2], 0.55), lerp(W[1], W[2], 0.9), W[2]];
         softShadow(); ctx.fillStyle = legHex; tube(pts, w.map((x) => x * sw)); ctx.fill(); noShadow();
         ctx.save(); ctx.clip();
+        if (clothPat && p.gender === 'men') { ctx.fillStyle = clothPat; ctx.fillRect(0, 0, cw, ch); }
         const g = ctx.createLinearGradient(...add(knee, u, -W[1] * sw / 2), ...add(knee, u, W[1] * sw / 2));
         g.addColorStop(0, 'rgba(0,0,0,.28)'); g.addColorStop(0.5, 'rgba(255,255,255,.06)'); g.addColorStop(1, 'rgba(0,0,0,.28)');
         ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
@@ -424,7 +503,8 @@ export function initMirror({ onStage, toast }) {
         for (let i = N - 1; i >= 0; i--) ctx.lineTo(...Rp[i]);
         // neckline dips at the front; the back is cut higher
         const dip = ri === 0 ? (p.neck ? p.neck.dip * (isBack ? 0.3 : 1) : 0.012) : 0;
-        ctx.quadraticCurveTo(...axis(y0 - dip * 2), ...Lp[0]);
+        if (ri === 0 && p.neck && p.neck.shape === 'v' && !isBack) { ctx.lineTo(...axis(y0 - dip)); ctx.lineTo(...Lp[0]); }
+        else ctx.quadraticCurveTo(...axis(y0 - dip * 2), ...Lp[0]);
         ctx.closePath();
       });
     };
@@ -438,7 +518,8 @@ export function initMirror({ onStage, toast }) {
     maxHW *= 1.04;
     ctx.translate(...Ct); ctx.rotate(Math.atan2(d[1], d[0]) - Math.PI / 2);
     // the cloth artwork wraps the whole body: front half for the front photo, back half for the back
-    if (isBack) ctx.drawImage(art, 128, 0, 256, 512, -maxHW, -0.02 * T, 2 * maxHW, L2);
+    if (fab) { ctx.fillStyle = clothPat; ctx.fillRect(-maxHW, -0.05 * T, 2 * maxHW, L2 + 0.1 * T); }
+    else if (isBack) ctx.drawImage(art, 128, 0, 256, 512, -maxHW, -0.02 * T, 2 * maxHW, L2);
     else { ctx.drawImage(art, 384, 0, 128, 512, -maxHW, -0.02 * T, maxHW, L2); ctx.drawImage(art, 0, 0, 128, 512, 0, -0.02 * T, maxHW, L2); }
     const g = ctx.createLinearGradient(-maxHW, 0, maxHW, 0);
     g.addColorStop(0, 'rgba(0,0,0,.36)'); g.addColorStop(0.2, 'rgba(0,0,0,.1)'); g.addColorStop(0.5, 'rgba(255,255,255,.08)');
@@ -463,6 +544,16 @@ export function initMirror({ onStage, toast }) {
     if (dark > 0) { ctx.fillStyle = `rgba(0,0,0,${dark})`; ctx.fillRect(-maxHW, -0.05 * T, 2 * maxHW, L2 + 0.1 * T); }
     ctx.restore();
 
+    /* front buttons */
+    if (p.placket != null && !isBack) {
+      const a = axis(top - (p.neck ? p.neck.dip : 0)), b = axis(Math.max(p.placket, bot + 0.02));
+      ctx.strokeStyle = 'rgba(0,0,0,.28)'; ctx.lineWidth = Math.max(1.5, sw * 0.008); ctx.lineCap = 'butt';
+      ctx.beginPath(); ctx.moveTo(...add(a, u, sw * 0.022)); ctx.lineTo(...add(b, u, sw * 0.022)); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1;
+      const n = Math.max(3, Math.round(len(sub(b, a)) / (sw * 0.3)));
+      for (let i = 0; i < n; i++) { const c = mix(a, b, (i + 0.6) / n); ctx.beginPath(); ctx.arc(c[0], c[1], Math.max(1.6, sw * 0.012), 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+    }
+
     /* straps */
     if (p.straps) {
       ctx.strokeStyle = shade(hex, 0.1); ctx.lineWidth = Math.max(3, sw * (p.trousers ? 0.045 : 0.022)); ctx.lineCap = 'round';
@@ -482,11 +573,49 @@ export function initMirror({ onStage, toast }) {
         const widths = pts.length === 2 ? [w0, lerp(w0, w1, 0.6)] : [w0, lerp(w0, w1, 0.5), w1];
         softShadow(); ctx.fillStyle = hex; const end = tube(pts, widths); ctx.fill(); noShadow();
         ctx.save(); ctx.clip();
-        if (look.pattern && look.pattern !== 'plain' && swatchPattern) { ctx.fillStyle = swatchPattern; ctx.fillRect(0, 0, cw, ch); }
+        const sleevePat = fab ? clothPat : (look.pattern && look.pattern !== 'plain' ? swatchPattern : null);
+        if (sleevePat) { ctx.fillStyle = sleevePat; ctx.fillRect(0, 0, cw, ch); }
         ctx.strokeStyle = 'rgba(0,0,0,.22)'; ctx.lineWidth = Math.max(4, w0 * 0.28); tube(pts, widths); ctx.stroke();
         if (dark > 0) { ctx.fillStyle = `rgba(0,0,0,${dark})`; ctx.fillRect(0, 0, cw, ch); }
         ctx.restore();
-        if (look.pattern && look.pattern !== 'plain') { ctx.strokeStyle = GOLD; ctx.lineWidth = Math.max(3, sw * 0.02); ctx.lineCap = 'butt'; ctx.beginPath(); ctx.moveTo(...end.endA); ctx.lineTo(...end.endB); ctx.stroke(); }
+        if (!fab && look.pattern && look.pattern !== 'plain') { ctx.strokeStyle = GOLD; ctx.lineWidth = Math.max(3, sw * 0.02); ctx.lineCap = 'butt'; ctx.beginPath(); ctx.moveTo(...end.endA); ctx.lineTo(...end.endB); ctx.stroke(); }
+      }
+    }
+
+    /* waistcoat over the kameez */
+    if (p.vest) {
+      const vb = p.vest.bottom, vTop = 0.975, vDeep = 0.5;
+      const panel = (sgn) => {
+        ctx.beginPath(); ctx.moveTo(...edge(vTop, sgn));
+        for (let i = 1; i <= 14; i++) { const y = lerp(vTop, vb, i / 14); ctx.lineTo(...add(axis(y), across(y), sgn * half(y) * 1.03)); }
+        if (isBack) { for (let i = 14; i >= 0; i--) { const y = lerp(vTop, vb, i / 14); ctx.lineTo(...add(axis(y), across(y), -sgn * half(y) * 1.03)); } }
+        else { ctx.lineTo(...add(axis(vb), u, sgn * sw * 0.015)); ctx.lineTo(...add(axis(vDeep), u, sgn * sw * 0.015)); }
+        ctx.closePath();
+      };
+      for (const sgn of isBack ? [1] : [-1, 1]) {
+        softShadow(); ctx.fillStyle = p.vest.color; panel(sgn); ctx.fill(); noShadow();
+        ctx.save(); ctx.clip();
+        const vg = ctx.createLinearGradient(...add(axis(0.5), u, -half(0.5)), ...add(axis(0.5), u, half(0.5)));
+        vg.addColorStop(0, 'rgba(0,0,0,.34)'); vg.addColorStop(0.5, 'rgba(255,255,255,.07)'); vg.addColorStop(1, 'rgba(0,0,0,.34)');
+        ctx.fillStyle = vg; ctx.fillRect(0, 0, cw, ch);
+        ctx.restore();
+      }
+      if (!isBack) { ctx.fillStyle = GOLD; for (let i = 0; i < 4; i++) { const c = add(axis(lerp(vDeep - 0.04, vb + 0.05, i / 3)), u, -sw * 0.03); ctx.beginPath(); ctx.arc(c[0], c[1], Math.max(1.8, sw * 0.013), 0, Math.PI * 2); ctx.fill(); } }
+    }
+
+    /* collar */
+    if (p.collar && !isBack) {
+      const dip = p.neck ? p.neck.dip : 0.03, nl = edge(top, -1), nr = edge(top, 1), nc = axis(top - dip);
+      const colHex = G.mixHex(hex, G.lightness(hex) > 0.6 ? '#000000' : '#ffffff', 0.1);
+      if (p.collar === 'ban') {
+        ctx.strokeStyle = colHex; ctx.lineWidth = Math.max(4, sw * 0.045); ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(...nl); ctx.quadraticCurveTo(...axis(top - dip * 2), ...nr); ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1; ctx.stroke();
+      } else {
+        for (const [edgePt, sgn] of [[nl, -1], [nr, 1]]) {
+          ctx.beginPath(); ctx.moveTo(...edgePt); ctx.lineTo(...nc); ctx.lineTo(...add(axis(top - dip - 0.085), u, sgn * half(top) * 0.8)); ctx.closePath();
+          ctx.fillStyle = colHex; ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,.3)'; ctx.lineWidth = 1; ctx.stroke();
+        }
       }
     }
 

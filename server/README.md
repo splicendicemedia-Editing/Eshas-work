@@ -37,3 +37,9 @@ Send that Worker address to whoever maintains the site. It goes in `config.js` a
 - To try a cheaper model, add a Text variable `FAL_MODEL` with `fal-ai/image-apps-v2/virtual-try-on` (about $0.04 per picture) or `fal-ai/kling/v1-5/kolors-virtual-try-on` (about $0.07).
 - When a visitor taps "See it for real", their photo goes to this server and on to fal.ai. This server does not store photos. Read fal.ai's privacy terms and mention the partner in your privacy policy before a public launch.
 - The back picture is the AI's guess, because the outfit pictures only show the front.
+
+## Unstitched fabric
+
+When a visitor brings their own fabric picture and taps "See it for real", the server makes two pictures: first the stitched suit (model `fal-ai/nano-banana/edit`), then the suit on the visitor. That costs roughly 12 to 15 cents instead of about 8, and still counts as one of the visitor's 5 a day. The stitched suit is reused for the back photo, so the back only costs the try-on.
+
+The server also fetches fabric pictures from shop links for the site (`GET ?img=<link>`), because many shops do not let a browser read their pictures directly. It only accepts https picture links, and only from the allowed site.

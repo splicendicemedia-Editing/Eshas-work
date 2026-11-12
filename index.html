@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=18">
+  <link rel="stylesheet" href="styles.css?v=20">
   <script type="importmap">
     { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -214,8 +214,14 @@
     <section id="looks" class="solid looks">
       <div class="wrap">
         <p class="eyebrow reveal">The collection</p>
-        <h2 class="h2 sm reveal">Styles women <em>love to wear.</em></h2>
-        <p class="lead reveal">Pakistani, British and American favourites — tap any look to try it in your size.</p>
+        <h2 class="h2 sm reveal">Styles you'll <em>love to wear.</em></h2>
+        <p class="lead reveal">Women's and men's wear, from shalwar kameez to shirts and jeans. Tap any look to try it.</p>
+        <div class="looks-bar reveal">
+          <div class="looks-tabs" id="looksTabs" role="tablist" aria-label="Who is it for">
+            <button type="button" role="tab" data-for="women" class="active">Women</button><button type="button" role="tab" data-for="men">Men</button>
+          </div>
+          <button class="btn btn-ghost" type="button" data-open-mirror="fabric">Have unstitched fabric? Try it stitched</button>
+        </div>
       </div>
       <div class="looks-rail" id="looksRail" aria-label="Outfits"></div>
       <p class="fine center looks-credit">Model photos: free-licence images from <a href="https://unsplash.com/?utm_source=miraal_concept&utm_medium=referral" target="_blank" rel="noopener">Unsplash</a> photographers, shown as style examples.</p>
@@ -502,8 +508,23 @@
         <button class="btn btn-primary mr-real" id="mrReal" type="button" hidden>See it for real</button>
       </div>
       <p class="mr-left" id="mrLeft"></p>
+      <div class="mr-tabs" id="mrTabs" role="tablist" aria-label="What to try on">
+        <button type="button" role="tab" data-tab="women">Women</button><button type="button" role="tab" data-tab="men">Men</button><button type="button" role="tab" data-tab="fabric">My fabric</button>
+      </div>
       <div class="mr-colors" id="mrColors" aria-label="Colour"></div>
       <div class="mr-rail" id="mrRail" aria-label="Outfits"></div>
+      <div class="mr-fabric" id="mrFabric" aria-label="Your own fabric">
+        <div class="mr-fab-pick">
+          <img id="mrFabThumb" alt="Your fabric" hidden>
+          <button class="btn btn-primary" id="mrFabUpload" type="button">Upload fabric photo</button>
+          <input id="mrFabFile" type="file" accept="image/*" hidden>
+          <input id="mrFabUrl" type="url" inputmode="url" placeholder="or paste a picture link" aria-label="Fabric picture link">
+          <button class="btn btn-ghost" id="mrFabUse" type="button">Use</button>
+        </div>
+        <div class="mr-opt" data-opt="wearer" aria-label="Who is it for"></div>
+        <div class="mr-opt" data-opt="neck" aria-label="Neckline"></div>
+        <div class="mr-opt" data-opt="bottom" aria-label="Shalwar or trouser"></div>
+      </div>
       <div class="mr-actions">
         <button class="btn btn-ghost" id="mrRetake" type="button">Retake photos</button>
         <button class="btn btn-ghost" id="mrSave" type="button">Save picture</button>
@@ -611,6 +632,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="main.js?v=18"></script>
+  <script type="module" src="main.js?v=20"></script>
 </body>
 </html>

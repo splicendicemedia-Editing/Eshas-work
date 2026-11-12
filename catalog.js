@@ -44,6 +44,55 @@ export const STYLES = {
                trousers: { kind: 'wide' }, fabric: 'crepe', pattern: 'plain', color: 'noir' },
 };
 
+// Men's wear. Same fields as STYLES plus:
+//   cut: 'straight'  no bust or hip shaping
+//   collar           'shirt' | 'ban' (band collar)
+//   placket          how far down the front buttons run (catalogue y)
+//   vest             waistcoat worn over the kameez
+//   trousers.color   fixed trouser colour (jeans, dress trousers)
+export const MEN = {
+  m_shalwar:   { label: 'Shalwar Kameez', gender: 'men', region: 'pk', cut: 'straight', neck: { y: 0.975, dip: 0.035 }, collar: 'shirt', placket: 0.5,
+                 bottom: -0.56, flare: 0.03, flarePow: 1, pleat: 0.004, pleats: 6, sway: 0, sleeves: { len: 0.62, r0: 0.078, r1: 0.06 },
+                 trousers: { kind: 'shalwar' }, fabric: 'lawn', pattern: 'plain', color: 'white' },
+  m_kurta:     { label: 'Kurta Pajama', gender: 'men', region: 'pk', cut: 'straight', neck: { y: 0.975, dip: 0.035 }, collar: 'ban', placket: 0.55,
+                 bottom: -0.5, flare: 0.03, flarePow: 1, pleat: 0.004, pleats: 6, sway: 0, sleeves: { len: 0.62, r0: 0.078, r1: 0.06 },
+                 trousers: { kind: 'slim' }, fabric: 'lawn', pattern: 'plain', color: 'royal' },
+  m_waistcoat: { label: 'Waistcoat Suit', gender: 'men', region: 'pk', cut: 'straight', neck: { y: 0.975, dip: 0.035 }, collar: 'ban', placket: 0.6,
+                 bottom: -0.56, flare: 0.03, flarePow: 1, pleat: 0.004, pleats: 6, sway: 0, sleeves: { len: 0.62, r0: 0.078, r1: 0.06 },
+                 trousers: { kind: 'shalwar' }, vest: { color: '#6b1f2a', bottom: 0.08 }, fabric: 'lawn', pattern: 'plain', color: 'ivory' },
+  m_shirt:     { label: 'Shirt & Jeans', gender: 'men', region: 'west', cut: 'straight', neck: { y: 0.975, dip: 0.04 }, collar: 'shirt', placket: 0.04,
+                 bottom: 0.02, flare: 0, flarePow: 1, pleat: 0.002, pleats: 6, sway: 0, sleeves: { len: 0.62, r0: 0.078, r1: 0.06 },
+                 trousers: { kind: 'jeans', color: '#3d5a80' }, fabric: 'linen', pattern: 'plain', color: 'sky' },
+  m_dress:     { label: 'Dress Shirt & Trousers', gender: 'men', region: 'west', cut: 'straight', neck: { y: 0.975, dip: 0.04 }, collar: 'shirt', placket: 0.04,
+                 bottom: 0.02, flare: 0, flarePow: 1, pleat: 0.002, pleats: 6, sway: 0, sleeves: { len: 0.62, r0: 0.078, r1: 0.06 },
+                 trousers: { kind: 'jeans', color: '#22232b' }, fabric: 'crepe', pattern: 'plain', color: 'noir' },
+  m_tee:       { label: 'T-shirt & Jeans', gender: 'men', region: 'west', cut: 'straight', neck: { y: 0.975, dip: 0.05 },
+                 bottom: 0.03, flare: 0, flarePow: 1, pleat: 0.002, pleats: 6, sway: 0, sleeves: { len: 0.2, r0: 0.082, r1: 0.078 },
+                 trousers: { kind: 'jeans', color: '#3d5a80' }, fabric: 'lawn', pattern: 'plain', color: 'ivory' },
+};
+export const ALL = { ...STYLES, ...MEN };
+export const REGION_LABEL = { pk: 'Pakistani', uk: 'British', us: 'American', west: 'Western' };
+
+// Unstitched fabric: the customer brings a fabric picture and chooses how it is stitched.
+export const STITCH = {
+  wearer: { men: 'Men\u2019s suit', women: 'Women\u2019s suit' },
+  neck:   { gol: 'Gol gala', ban: 'Ban collar', shirt: 'Shirt collar', v: 'V-neck' },
+  bottom: { shalwar: 'Shalwar', khuli: 'Khuli shalwar', kali: 'Kali wali shalwar', pajama: 'Pajama', trouser: 'Trouser' },
+};
+// drawing recipe for a stitched suit made from the customer's fabric
+export function stitchedStyle({ wearer = 'men', neck = 'gol', bottom = 'shalwar' } = {}) {
+  const dip = { gol: 0.07, ban: 0.03, shirt: 0.04, v: 0.15 }[neck] ?? 0.07;
+  const base = wearer === 'men'
+    ? { cut: 'straight', bottom: -0.56, flare: 0.03, sleeves: { len: 0.62, r0: 0.078, r1: 0.06 } }
+    : { bottom: -0.5, flare: 0.07, sleeves: { len: 0.5, r0: 0.07, r1: 0.055 } };
+  return {
+    label: STITCH.wearer[wearer], gender: wearer, custom: true, ...base,
+    neck: { y: 0.975, dip, shape: neck === 'v' ? 'v' : 'round' }, collar: neck === 'ban' || neck === 'shirt' ? neck : null,
+    placket: neck === 'gol' || neck === 'v' ? null : 0.55,
+    flarePow: 1.1, pleat: 0.004, pleats: 6, sway: 0, trousers: { kind: bottom },
+  };
+}
+
 export const FABRICS = {
   lawn:    { label: 'Lawn cotton',    roughness: 0.82, sheen: 0.3,  sheenRoughness: 0.7,  sheenMix: 0.25, bump: 0.8 },
   chiffon: { label: 'Chiffon',        roughness: 0.55, sheen: 0.9,  sheenRoughness: 0.35, sheenMix: 0.45, bump: 0.3 },
@@ -70,6 +119,8 @@ export const COLORS = {
   sky:       { label: 'Sky',       hex: '#8fb4d9' },
   royal:     { label: 'Royal blue', hex: '#1f3a8a' },
   noir:      { label: 'Noir',      hex: '#1b1920' },
+  white:     { label: 'White',     hex: '#f3f1ea' },
+  charcoal:  { label: 'Charcoal',  hex: '#3a3d45' },
 };
 
 // ease = distance between garment and body (scene units). M is the "recommended" size.
@@ -82,7 +133,7 @@ export const SIZES = {
 };
 
 export const lookFor = (style, size = 'M') => {
-  const s = STYLES[style];
+  const s = ALL[style];
   return { style, fabric: s.fabric, color: s.color, pattern: s.pattern, size };
 };
 
@@ -103,6 +154,12 @@ export const PHOTOS = {
   slip:     { id: 'photo-1594739033447-80ab21e24b4c', page: 'GNd5gstTSg8', alt: 'Model in a black slip dress' },
   sundress: { id: 'photo-1777713272516-e7b2216fe15e', page: 'y40t2wpvmqU', alt: 'Model in a white sundress in a garden' },
   jumpsuit: { id: 'photo-1495385794356-15371f348c31', page: 'c5t_j1zlk1Y', alt: 'Model in a teal jumpsuit' },
+  m_shalwar:   { id: 'photo-1734418040900-e964f84e8abb', page: 'WpE5DzEZ-e0', alt: 'Man in a white shalwar kameez' },
+  m_kurta:     { id: 'photo-1770359993283-a2c2f386584e', page: 'sLRFg-VC2FY', alt: 'Man in a blue kurta and pajama' },
+  m_waistcoat: { id: 'photo-1785651523544-b8ecbbfecebe', page: 'WRS_fX4YIMc', alt: 'Man in a kurta with a maroon waistcoat' },
+  m_shirt:     { id: 'photo-1792007195205-dc9f0ba038e9', page: 'o86ZeQjjmDw', alt: 'Man in a light blue shirt and trousers' },
+  m_dress:     { id: 'photo-1763610452422-a24873594a0b', page: 'hyy3Lrv5WdM', alt: 'Man in a black dress shirt and trousers' },
+  m_tee:       { id: 'photo-1781106477318-b44ff46d7fdf', page: 'bfy9MidHYUY', alt: 'Man in a T-shirt and jeans' },
 };
 export const photoUrl = (style, w = 900) => `${U}${PHOTOS[style].id}?auto=format&fit=crop&crop=faces,center&w=${w}&h=${Math.round(w * 1.5)}&q=80`;
 export const photoPage = (style) => `https://unsplash.com/photos/${PHOTOS[style].page}`;

@@ -1,7 +1,7 @@
-import { STYLES, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=18';
-import { initCamera } from './camera.js?v=18';
-import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=18';
-import { initMirror } from './mirror.js?v=18';
+import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=20';
+import { initCamera } from './camera.js?v=20';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=20';
+import { initMirror } from './mirror.js?v=20';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -51,7 +51,7 @@ const studioLook = lookFor('shalwar');
 let collection = 'pk';
 let scene = null;
 
-import('./scene.js?v=18')
+import('./scene.js?v=20')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();
@@ -119,10 +119,10 @@ function buildStudio() {
   $('#tryOnMe').addEventListener('click', () => mirror.open({ ...studioLook }));
 
   // first screen: three real looks; tap one to try it on yourself
-  $('#heroPhotos').innerHTML = ['shalwar', 'anarkali', 'gown'].map((k) => `<figure data-hero-look="${k}" tabindex="0" role="button" aria-label="Try the ${STYLES[k].label} on yourself">
+  $('#heroPhotos').innerHTML = ['shalwar', 'm_shalwar', 'gown'].map((k) => `<figure data-hero-look="${k}" tabindex="0" role="button" aria-label="Try the ${ALL[k].label} on yourself">
       <img src="${photoUrl(k, 560)}" alt="${PHOTOS[k].alt}" decoding="async">
       <span class="try-pill">Try it on me</span>
-      <figcaption><small>${COLLECTIONS[STYLES[k].region].label}</small><b>${STYLES[k].label}</b></figcaption></figure>`).join('');
+      <figcaption><small>${ALL[k].gender === 'men' ? 'Men · ' : ''}${REGION_LABEL[ALL[k].region]}</small><b>${ALL[k].label}</b></figcaption></figure>`).join('');
   $('#heroPhotos').addEventListener('click', (e) => { const f = e.target.closest('[data-hero-look]'); if (f) mirror.open(lookFor(f.dataset.heroLook)); });
   $('#heroPhotos').addEventListener('keydown', (e) => { const f = e.target.closest('[data-hero-look]'); if (f && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); mirror.open(lookFor(f.dataset.heroLook)); } });
   $('#randomLook').addEventListener('click', () => {
@@ -144,13 +144,23 @@ function buildStudio() {
   $('#modelImg').addEventListener('load', (e) => e.target.classList.add('in'));
 
   // real-photo lookbook rail: tap a look to open it in the studio
-  $('#looksRail').innerHTML = Object.entries(STYLES).map(([k, v]) => `<button class="look-card" type="button" data-look="${k}">
+  // women's looks open in the studio; men's looks open "Try it on me" (the 3D form is a women's dress form)
+  let looksFor = 'women';
+  const renderLooks = () => {
+    $$('#looksTabs [data-for]').forEach((b) => b.classList.toggle('active', b.dataset.for === looksFor));
+    $('#looksRail').innerHTML = Object.entries(ALL).filter(([, v]) => (v.gender === 'men') === (looksFor === 'men'))
+      .map(([k, v]) => `<button class="look-card" type="button" data-look="${k}">
       <img src="${photoUrl(k, 480)}" alt="${PHOTOS[k].alt}" loading="lazy" decoding="async">
-      <span><small>${COLLECTIONS[v.region].label}</small><b>${v.label}</b></span></button>`).join('');
+      <span><small>${REGION_LABEL[v.region]}</small><b>${v.label}</b></span></button>`).join('');
+    $('#looksRail').scrollLeft = 0;
+  };
+  $('#looksTabs').addEventListener('click', (e) => { const b = e.target.closest('[data-for]'); if (b) { looksFor = b.dataset.for; renderLooks(); } });
+  renderLooks();
   $('#looksRail').addEventListener('click', (e) => {
     const b = e.target.closest('[data-look]');
     if (!b) return;
     const st = b.dataset.look;
+    if (ALL[st].gender === 'men') { mirror.open(lookFor(st)); return; }
     collection = STYLES[st].region; renderOutfits();
     Object.assign(studioLook, lookFor(st, studioLook.size));
     setView('photo'); syncStudio();

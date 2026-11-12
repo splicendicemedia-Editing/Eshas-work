@@ -17,3 +17,14 @@ The model photos in the "Styles women love to wear" rail and the studio's "On a 
 | Wide-leg Jumpsuit | https://unsplash.com/photos/c5t_j1zlk1Y |
 
 Before a commercial launch, replace these with the brand's own catalogue photos or stock images that come with model releases.
+
+## Men's wear
+
+| Outfit | Photo page |
+|---|---|
+| Shalwar Kameez | https://unsplash.com/photos/WpE5DzEZ-e0 |
+| Kurta Pajama | https://unsplash.com/photos/sLRFg-VC2FY |
+| Waistcoat Suit | https://unsplash.com/photos/WRS_fX4YIMc |
+| Shirt & Jeans | https://unsplash.com/photos/o86ZeQjjmDw |
+| Dress Shirt & Trousers | https://unsplash.com/photos/hyy3Lrv5WdM |
+| T-shirt & Jeans | https://unsplash.com/photos/bfy9MidHYUY |
