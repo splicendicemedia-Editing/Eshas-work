@@ -1,7 +1,14 @@
-import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=22';
-import { initCamera } from './camera.js?v=22';
-import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=22';
-import { initMirror } from './mirror.js?v=22';
+import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=23';
+import { initCamera } from './camera.js?v=23';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=23';
+import { initMirror } from './mirror.js?v=23';
+import { reportProblem } from './report.js?v=23';
+import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=23';
+
+// code errors anywhere on the page are noted too (a few per visit at most)
+let pageErrors = 0;
+addEventListener('error', (e) => { if (e.message && pageErrors++ < 3) reportProblem('page.error', `${e.message} @ ${(e.filename || '').split('/').pop()}:${e.lineno || 0}`); });
+addEventListener('unhandledrejection', (e) => { if (pageErrors++ < 3) reportProblem('page.error', String((e.reason && e.reason.message) || e.reason)); });
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -51,7 +58,7 @@ const studioLook = lookFor('shalwar');
 let collection = 'pk';
 let scene = null;
 
-import('./scene.js?v=22')
+import('./scene.js?v=23')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();
@@ -231,12 +238,12 @@ const RATIOS = [
   ['inseam', 'Inseam', 0.452], ['arm', 'Arm length', 0.343], ['neck', 'Neck', 0.205], ['thigh', 'Thigh', 0.322],
 ];
 const mGrid = $('#mGrid');
-mGrid.innerHTML = RATIOS.map(([k, l]) => `<div class="m-cell"><small>${l}</small><b data-m="${k}">0<span>cm</span></b></div>`).join('');
+mGrid.innerHTML = RATIOS.map(([k, l]) => `<div class="m-cell"><small>${l}</small><b data-m="${k}">0<span>${UNIT}</span></b></div>`).join('');
 const shown = {};
 let measuredLive = false;
 let exactHeight = null;
 const getHeight = () => {
-  const v = parseFloat($('#heightIn').value) || 168;
+  const v = heightToCm($('#heightIn').value) || 168;
   return clamp(exactHeight && Math.round(exactHeight) === Math.round(v) ? exactHeight : v, 130, 215);
 };
 const estimateFromHeight = (h) => Object.fromEntries(RATIOS.map(([k, , r]) => [k, h * r]));
@@ -263,17 +270,17 @@ function animateTo(values) {
     const step = (t) => {
       const p = Math.min(1, (t - t0) / 700);
       const v = from + (target - from) * (1 - Math.pow(1 - p, 3));
-      el.innerHTML = `${v.toFixed(1)}<span>cm</span>`;
+      el.innerHTML = `${fmtLen(v)}<span>${UNIT}</span>`;
       if (p < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
     shown[k] = target;
   });
-  $$('.p-tag b').forEach((b) => { if (values[b.dataset.k] != null) b.textContent = `${values[b.dataset.k].toFixed(1)} cm`; });
+  $$('.p-tag b').forEach((b) => { if (values[b.dataset.k] != null) b.textContent = withUnit(values[b.dataset.k]); });
 }
 function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
 function showFeet() {
-  const h = parseFloat($('#heightIn').value);
+  const h = heightToCm($('#heightIn').value);
   if (!(h >= 130 && h <= 215)) { $('#heightFt').textContent = ''; return; }
   let ft = Math.floor(h / 30.48), inch = Math.round(h / 2.54 - ft * 12);
   if (inch === 12) { ft++; inch = 0; }
@@ -313,7 +320,7 @@ const profile = initProfile({ getMeasures: () => ({ ...shown }), getHeight, isMe
 initCamera({
   getHeight,
   // keep the exact height (ft/in converts to fractional cm); the field shows it rounded
-  setHeight: (h) => { exactHeight = h; $('#heightIn').value = Math.round(h); showFeet(); updateMeasures(); },
+  setHeight: (h) => { exactHeight = h; $('#heightIn').value = heightBox(h); showFeet(); updateMeasures(); },
   onMeasured: setMeasured,
   onSave: () => profile.open(),
   onTry: (size) => { setMySize(size); $('#studio').scrollIntoView({ behavior: 'smooth' }); },

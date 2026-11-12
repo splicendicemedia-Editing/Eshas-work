@@ -7,8 +7,10 @@
 //   stored or uploaded; the camera is switched off and cleared when the scan ends.
 // - The measuring maths (incl. protection against background objects) lives in measure.js.
 
-import { measureFrame, combine, ROW_KEYS } from './measure.js?v=22';
-import { recommendSize } from './profile.js?v=22';
+import { measureFrame, combine, ROW_KEYS } from './measure.js?v=23';
+import { recommendSize } from './profile.js?v=23';
+import { reportProblem } from './report.js?v=23';
+import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=23';
 
 const $ = (s) => document.querySelector(s);
 const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
@@ -64,7 +66,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   let captured = {}, liveW = {}, liveD = {}, liveLen = {}, lastResult = null;
   let voiceOn = true, lastSpoken = 0, lastHint = '', hintSince = 0;
   let unit = store.get('mirra.unit') === 'ft' ? 'ft' : 'cm';
-  let camWant = 'user', rear = false, flipping = false, camRun = 0, badFrames = 0;
+  let camWant = 'user', rear = false, flipping = false, camRun = 0, badFrames = 0, stuckSent = false;
 
   /* ---------- setup card: height (cm or ft/in) + consent ---------- */
   function setUnit(u) {
@@ -75,14 +77,14 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     fillHeight(getHeight());
   }
   function fillHeight(h) {
-    hCm.value = Math.round(h);
+    hCm.value = heightBox(h);
     const totalIn = h / 2.54;
     let ft = Math.floor(totalIn / 12), inch = Math.round(totalIn - ft * 12);
     if (inch === 12) { ft++; inch = 0; }
     hFt.value = ft; hIn.value = inch;
   }
   function readHeight() {
-    if (unit === 'cm') return parseFloat(hCm.value);
+    if (unit === 'cm') return heightToCm(hCm.value);
     const ft = parseFloat(hFt.value), inch = parseFloat(hIn.value || '0');
     return isFinite(ft) ? (ft * 12 + (isFinite(inch) ? inch : 0)) * 2.54 : NaN;
   }
@@ -111,7 +113,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   allow.addEventListener('click', () => {
     const h = readHeight();
     if (!(h >= 130 && h <= 215)) {
-      hErr.textContent = unit === 'cm' ? 'Please enter a height between 130 and 215 cm' : 'Please enter a height between 4 ft 3 in and 7 ft 1 in';
+      hErr.textContent = unit === 'cm' ? 'Please enter a height between 1.30 and 2.15 m' : 'Please enter a height between 4 ft 3 in and 7 ft 1 in';
       (unit === 'cm' ? hCm : hFt).focus();
       return;
     }
@@ -178,6 +180,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     openStage();
     setGuide('Waiting for the camera…', 'Your phone is asking to use the camera — tap Allow.');
     if (!navigator.mediaDevices?.getUserMedia) {
+      reportProblem('scan.no_camera_api', 'This browser gives the page no camera');
       setGuide('Camera not available here', 'Open this page in Chrome or Safari (it needs a secure https link).');
       return;
     }
@@ -189,6 +192,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
       if (run !== camRun) return;
       stream = null;
       const denied = e && e.name === 'NotAllowedError';
+      reportProblem(denied ? 'scan.camera_denied' : 'scan.camera_failed', `${e && e.name}: ${e && e.message}`);
       setGuide(denied ? 'Camera permission was declined' : 'No camera found',
         denied ? 'Nothing was captured. Allow the camera in your browser settings and try again.' : 'Close other apps that are using the camera and try again.');
       return;
@@ -204,6 +208,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     try { landmarker = landmarker || (await loadLandmarker()); }
     catch (e) {
       console.warn('Pose model failed to load', e);
+      reportProblem('scan.tracker_load', String(e && e.message || e));
       if (run !== camRun) return;
       stopCamera(); // do not leave the camera on behind an error message
       setGuide('Body tracker could not load', 'Check your internet connection, tap ✕ Stop, then try again.');
@@ -268,7 +273,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   }
 
   function enterPhase(i) {
-    pi = i; hold = 0; samples = []; phaseStart = performance.now();
+    pi = i; hold = 0; samples = []; phaseStart = performance.now(); stuckSent = false;
     const ph = PHASES[i];
     stage.dataset.phase = ph.id;
     stage.querySelectorAll('.ss-dots li').forEach((li, k) => { li.classList.toggle('done', k + 1 < i); li.classList.toggle('active', k + 1 === i); });
@@ -304,7 +309,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     catch (e) {
       console.warn(e);
       // the tracker failing on every picture would otherwise leave the person waiting forever
-      if (++badFrames > 40) { stopCamera(); setGuide('The body tracker stopped working', 'Tap ✕ Stop and try again. If it keeps happening, open this page in Chrome or Safari.'); }
+      if (++badFrames > 40) { reportProblem('scan.tracker_crash', String(e && e.message || e)); stopCamera(); setGuide('The body tracker stopped working', 'Tap ✕ Stop and try again. If it keeps happening, open this page in Chrome or Safari.'); }
       return;
     }
     badFrames = 0;
@@ -367,6 +372,8 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   function step(f) {
     const ph = PHASES[pi];
     if (!ph || ph.id === 'done') return;
+    // someone who cannot get past a step for 40 seconds: note which hint they kept seeing
+    if (!stuckSent && performance.now() - phaseStart > 40000) { stuckSent = true; reportProblem('scan.step_stuck', lastHint || 'no hint shown', { step: ph.id, back_camera: rear }); }
     const c = f.checks;
     const envOk = c.height && c.body && c.distance && c.light && c.upright && c.background;
     const envHint = !f.present ? 'Step into the picture — we can’t see you yet'
@@ -438,7 +445,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     for (const [k] of LIVE_KEYS) {
       const row = liveList.querySelector(`[data-k="${k}"]`);
       if (!row) continue;
-      row.querySelector('b').textContent = out[k] ? `${out[k].toFixed(1)} cm` : '—';
+      row.querySelector('b').textContent = out[k] ? withUnit(out[k]) : '—';
       row.className = state[k] || '';
     }
   }
@@ -521,8 +528,8 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
       ctx.beginPath(); ctx.moveTo(xa, y); ctx.lineTo(xb, y); ctx.stroke(); ctx.setLineDash([]);
       ctx.beginPath(); ctx.moveTo(xa, y - 6); ctx.lineTo(xa, y + 6); ctx.moveTo(xb, y - 6); ctx.lineTo(xb, y + 6); ctx.stroke();
       if (!showText && !blocked) continue;
-      const val = blocked ? `${ROW_LABEL[k]} · blocked` : out[k] ? `${ROW_LABEL[k]} ${out[k].toFixed(1)} cm` : ROW_LABEL[k];
-      const extra = !blocked && f.cm?.[k] ? ` · ${side ? 'depth' : 'width'} ${f.cm[k].toFixed(1)}` : '';
+      const val = blocked ? `${ROW_LABEL[k]} · blocked` : out[k] ? `${ROW_LABEL[k]} ${withUnit(out[k])}` : ROW_LABEL[k];
+      const extra = !blocked && f.cm?.[k] ? ` · ${side ? 'depth' : 'width'} ${fmtLen(f.cm[k])}` : '';
       if (rear) label(Math.max(xa, xb) + 12, y, val + extra, 'start'); else label(Math.min(xa, xb) - 12, y, val + extra, 'start');
     }
   }
@@ -544,8 +551,12 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
       : measured ? `<small>Your size</small><b>${size.size}</b><span>EU ${size.eu} · based on your chest, waist and hips</span>`
       : `<small>Estimated size</small><b>${size.size}</b><span>EU ${size.eu} · guessed from your height only — scan again with your arms a little out for your real size</span>`;
     $('#ssTry').textContent = size ? `Try dresses in size ${size.size}` : 'Try dresses';
-    resultEl.innerHTML = LIVE_KEYS.map(([k, l]) => `<div><dt>${l}</dt><dd>${result[k].toFixed(1)}<span>cm</span></dd></div>`).join('');
+    resultEl.innerHTML = LIVE_KEYS.map(([k, l]) => `<div><dt>${l}</dt><dd>${fmtLen(result[k])}<span>${UNIT}</span></dd></div>`).join('');
     const skippedAny = Object.values(captured).some((c) => c.skipped);
+    const skippedIds = Object.entries(captured).filter(([, c]) => c.skipped).map(([k]) => k);
+    if (skippedIds.length) reportProblem('scan.steps_skipped', skippedIds.join(', '));
+    if (capped.length) reportProblem('scan.value_limited', capped.join(', '), { height: Math.round(getHeight()) });
+    if (!measured) reportProblem('scan.size_guessed', 'chest and hips were not captured');
     $('#ssDoneNote').textContent = skippedAny
       ? 'Some steps were skipped, so a few numbers are estimated from your height.'
       : capped.length ? 'One or more numbers came out far from what is usual for your height, so they were limited. Loose clothes or things behind you can cause this. Scan again in fitted clothes.'

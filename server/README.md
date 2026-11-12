@@ -43,3 +43,15 @@ Send that Worker address to whoever maintains the site. It goes in `config.js` a
 When a visitor brings their own fabric picture and taps "See it for real", the server makes two pictures: first the stitched suit (model `fal-ai/nano-banana/edit`), then the suit on the visitor. That costs roughly 12 to 15 cents instead of about 8, and still counts as one of the visitor's 5 a day. The stitched suit is reused for the back photo, so the back only costs the try-on.
 
 The server also fetches fabric pictures from shop links for the site (`GET ?img=<link>`), because many shops do not let a browser read their pictures directly. It only accepts https picture links, and only from the allowed site.
+
+## Problem log
+
+When something goes wrong for a visitor, the site sends a short text note to this server (never a picture): what failed, where, the phone and browser type, the internet provider and country, and the time. The server also notes its own failures (the AI did not answer, a visitor reached the daily limit). Notes are kept for 60 days in a free Cloudflare D1 database called `miraal-problems`, connected to the Worker as `DB`.
+
+To read them, open `problems.html` on the site and enter your private code. To set the code:
+
+1. In Cloudflare open the Worker `miraal-tryon`, then "Settings", then "Variables and Secrets", then "Add".
+2. Type: Secret. Name: `ADMIN_KEY`. Value: a code you choose, at least 8 characters. Do not share it or paste it into a chat.
+3. Save and deploy.
+
+Without `ADMIN_KEY` the notes are still stored, but nobody can read them through the page.

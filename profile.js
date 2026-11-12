@@ -1,6 +1,7 @@
 // "Create your profile" — preview version stores the profile only in this browser (localStorage).
 // No photos are ever part of a profile: just a name, height, fit preference and measurements.
 
+import { UNIT, fmtLen, heightToCm, heightBox } from './units.js?v=23';
 const $ = (s) => document.querySelector(s);
 const KEY = 'mirra.profile.v1';
 const LABELS = { bust: 'Bust', waist: 'Waist', hips: 'Hips', shoulder: 'Shoulders', inseam: 'Inseam', arm: 'Arm', neck: 'Neck', thigh: 'Thigh' };
@@ -44,7 +45,7 @@ export function initProfile({ getMeasures, getHeight, isMeasured, toast }) {
   function renderMeasures() {
     const entries = Object.entries(draft.measurements || {}).filter(([k, v]) => LABELS[k] && v > 0);
     list.innerHTML = entries.length
-      ? entries.map(([k, v]) => `<div><small>${LABELS[k]}</small><b>${v.toFixed(1)}<span>cm</span></b></div>`).join('')
+      ? entries.map(([k, v]) => `<div><small>${LABELS[k]}</small><b>${fmtLen(v)}<span>${UNIT}</span></b></div>`).join('')
       : '<p class="fine">No measurements yet — scan with your camera or enter your height.</p>';
     const r = recommendSize(draft.measurements);
     rec.innerHTML = r ? `<small>Recommended size</small><b>${r.size} · EU ${r.eu}</b>` : '';
@@ -65,7 +66,7 @@ export function initProfile({ getMeasures, getHeight, isMeasured, toast }) {
       source: isMeasured() ? 'camera' : saved?.source || 'estimate',
     };
     nameIn.value = draft.name;
-    heightIn.value = Math.round(draft.height);
+    heightIn.value = heightBox(draft.height);
     form.querySelectorAll('input[name="fit"]').forEach((r) => { r.checked = r.value === draft.fit; });
     title.textContent = saved ? 'Your profile' : 'Create your profile';
     delBtn.hidden = !saved;
@@ -88,7 +89,7 @@ export function initProfile({ getMeasures, getHeight, isMeasured, toast }) {
     nameIn.classList.remove('err');
     const profile = {
       name: name.slice(0, 60),
-      height: Math.min(215, Math.max(130, parseFloat(heightIn.value) || 168)),
+      height: Math.min(215, Math.max(130, heightToCm(heightIn.value) || 168)),
       fit: form.querySelector('input[name="fit"]:checked')?.value || 'regular',
       measurements: draft.measurements,
       source: draft.source,

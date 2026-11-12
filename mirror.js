@@ -7,9 +7,10 @@
 //      and only after the person agreed to it on the start card).
 // Photos live in memory only and are wiped on Close.
 
-import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=22';
-import { getLandmarker } from './pose.js?v=22';
-import { TRYON_API, TRYON_API_ALT, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=22';
+import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=23';
+import { getLandmarker } from './pose.js?v=23';
+import { TRYON_API, TRYON_API_ALT, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=23';
+import { reportProblem, sendProblems } from './report.js?v=23';
 
 const $ = (s) => document.querySelector(s);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -61,6 +62,7 @@ export function initMirror({ onStage, toast }) {
   let holdStart = 0, badSince = 0, forced = false, lastFrameT = 0, shownCount = 0;
   let camWant = 'user', rear = false, flipping = false, camRun = 0, session = 0, audio = null, badFrames = 0;
   let notice = ''; // why the last real try-on did not work; stays on screen until the next try
+  let hintCount = {}, stuckSent = false; // which hint a person keeps seeing when they cannot get the photo taken
   let photos = { front: null, back: null };   // { canvas, lm, url }
   let side = 'front';
   let tab = 'women';                             // 'women' | 'men' | 'fabric'
@@ -131,7 +133,7 @@ export function initMirror({ onStage, toast }) {
       $('#mrFabThumb').src = data; $('#mrFabThumb').hidden = false;
       if (isBlob) URL.revokeObjectURL(src);
       if (stage.dataset.mode === 'looks') show();
-    })().catch(() => { if (isBlob) URL.revokeObjectURL(src); toast('That picture could not be opened. Save it to your phone and upload it instead.'); });
+    })().catch(() => { if (isBlob) URL.revokeObjectURL(src); let host = ''; try { host = isBlob ? 'uploaded photo' : `link on ${new URL(src).hostname}`; } catch { host = 'link'; } reportProblem('fabric.open_failed', host); toast('That picture could not be opened. Save it to your phone and upload it instead.'); });
   }
   const custom = () => tab === 'fabric';
   const styleNow = () => (custom() ? stitchedStyle(stitch) : ALL[look.style]);
@@ -158,7 +160,7 @@ export function initMirror({ onStage, toast }) {
     camWant = store.get(CAM_KEY) === 'environment' ? 'environment' : 'user'; syncCam();
     stage.classList.add('open'); document.body.classList.add('mirror-open');
     $('#mrPrivacy').innerHTML = API
-      ? `<b>Your photo.</b> The preview is made on your device. If you tap <b>See it for real</b>, your photo is sent to our try-on partner (${TRYON_PARTNER}) to make the picture. Miraal does not keep it.`
+      ? `<b>Your photo.</b> The preview is made on your device. If you tap <b>See it for real</b>, your photo is sent to our try-on partner (${TRYON_PARTNER}) to make the picture. Miraal does not keep it. If something fails, a short note without any picture is sent so we can fix it.`
       : '<b>Private.</b> Your photos stay on your device. Nothing is uploaded, and they are deleted when you close this screen.';
     if (photos.front) { setMode('looks'); show(); } else { setMode('start'); statusEl.textContent = 'Your phone will ask to use the camera. Tap Allow.'; }
     onStage && onStage(true);
@@ -226,7 +228,7 @@ export function initMirror({ onStage, toast }) {
   async function startCamera() {
     if (stream) stopCamera(); // a second tap must not leave the first camera running
     setMode('start');
-    if (!navigator.mediaDevices?.getUserMedia) { statusEl.textContent = 'The camera is not available here. Open this page in Chrome or Safari.'; return; }
+    if (!navigator.mediaDevices?.getUserMedia) { reportProblem('tryon.no_camera_api', 'This browser gives the page no camera'); statusEl.textContent = 'The camera is not available here. Open this page in Chrome or Safari.'; return; }
     statusEl.textContent = 'Waiting for the camera…';
     const run = ++camRun;
     let s;
@@ -235,6 +237,7 @@ export function initMirror({ onStage, toast }) {
     } catch (e) {
       if (run !== camRun) return;
       stream = null;
+      reportProblem(e && e.name === 'NotAllowedError' ? 'tryon.camera_denied' : 'tryon.camera_failed', `${e && e.name}: ${e && e.message}`);
       statusEl.textContent = e && e.name === 'NotAllowedError' ? 'Camera permission was declined. Allow the camera in your browser settings and try again.' : 'No camera found. Close other apps using the camera and try again.';
       return;
     }
@@ -246,9 +249,10 @@ export function initMirror({ onStage, toast }) {
     navigator.mediaDevices.enumerateDevices?.().then((d) => { flipBtn.hidden = d.filter((x) => x.kind === 'videoinput').length < 2; }).catch(() => {});
     statusEl.textContent = 'Getting ready… a few seconds the first time.';
     try {
-      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=22')]);
+      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=23')]);
     } catch (e) {
       console.warn('Try-on could not load', e);
+      reportProblem('tryon.tracker_load', String(e && e.message || e));
       if (run !== camRun) return;
       stopCamera();
       statusEl.textContent = 'This could not load. Check your internet connection and try again.';
@@ -313,6 +317,7 @@ export function initMirror({ onStage, toast }) {
       : (step === 'front' ? 'Stand back so we see you from head to knees. Arms a little away from your body.' : 'Back to the camera. Stand straight and hold still.');
   }
   function enterStep(s) {
+    hintCount = {}; stuckSent = false;
     step = s; prev = null; stepStart = performance.now();
     resetHold();
     describeStep();
@@ -332,7 +337,7 @@ export function initMirror({ onStage, toast }) {
     catch (e) {
       console.warn(e);
       // the tracker failing on every picture would otherwise leave the person waiting forever
-      if (++badFrames > 40) { stopCamera(); setMode('start'); statusEl.textContent = 'The camera guide stopped working. Tap Agree & start camera to try again, or open this page in Chrome or Safari.'; }
+      if (++badFrames > 40) { reportProblem('tryon.tracker_crash', String(e && e.message || e)); stopCamera(); setMode('start'); statusEl.textContent = 'The camera guide stopped working. Tap Agree & start camera to try again, or open this page in Chrome or Safari.'; }
       return;
     }
     badFrames = 0;
@@ -361,6 +366,13 @@ export function initMirror({ onStage, toast }) {
     if (n !== shownCount) { shownCount = n; countEl.textContent = n || ''; pctEl.textContent = n || ''; if (n) beep(n === 1); }
     setRing(gone / COUNT_MS);
     setHint(holdStart ? '' : c.hint);
+    // someone who cannot get the photo taken for 45 seconds: note which hint they kept seeing
+    if (c.hint) hintCount[c.hint] = (hintCount[c.hint] || 0) + 1;
+    if (!stuckSent && now - stepStart > 45000) {
+      stuckSent = true;
+      const top = Object.entries(hintCount).sort((a, b) => b[1] - a[1])[0];
+      reportProblem('tryon.capture_stuck', top ? top[0] : 'no hint shown', { photo: step, back_camera: rear });
+    }
     titleEl.textContent = holdStart ? 'Hold still…' : step === 'front' ? 'Face the camera' : 'Now turn around';
     if (holdStart && gone >= COUNT_MS && lm && (forced || c.ok)) capture(lm);
   }
@@ -486,12 +498,13 @@ export function initMirror({ onStage, toast }) {
     say('Connecting…', 'A few seconds');
     busy.hidden = false; realBtn.disabled = true;
     const ctl = new AbortController();
-    let timer = 0, why = '';
+    let timer = 0, why = '', code = '';
+    const began = performance.now();
     try {
       // 1. find a server address this internet connection can reach (some providers block one of them)
       let api = '';
       for (let round = 0; round < 2 && !api; round++) for (const a of APIS) if (await reachable(a)) { api = a; break; }
-      if (!api) { why = 'Your internet connection cannot reach our try-on server. Switch between Wi-Fi and mobile data, then tap See it for real again.'; throw new Error('server unreachable'); }
+      if (!api) { code = 'unreachable'; why = 'Your internet connection cannot reach our try-on server. Switch between Wi-Fi and mobile data, then tap See it for real again.'; throw new Error('server unreachable'); }
       API = api;
       // 2. send the photo; give up with a clear message instead of spinning for ever
       say(slow ? 'Stitching your suit…' : 'Creating your look…', slow ? 'About 40 seconds' : 'About 20 seconds');
@@ -507,6 +520,7 @@ export function initMirror({ onStage, toast }) {
       if (r.status === 429) { store.set(dayKey(), String(DAILY_LIMIT)); toast('You have used today’s real try-ons'); }
       else if (!r.ok || !data.image) {
         if (typeof data.left === 'number') count();
+        code = r.status === 502 ? 'ai_failed' : r.status === 503 || r.status === 403 ? 'not_setup' : 'bad_photo';
         why = r.status === 502 ? 'The AI could not make this picture. Try again, or retake the photo with your whole body in view and good light.'
           : r.status === 503 || r.status === 403 ? 'The try-on server is not set up for this site yet.'
           : 'The photo could not be used. Retake it and try again.';
@@ -517,15 +531,18 @@ export function initMirror({ onStage, toast }) {
         say('Almost there…', 'Loading your picture');
         const viaUs = `${API}?img=${encodeURIComponent(data.image)}`;
         const shown = (await loads(data.image)) ? data.image : (await loads(viaUs)) ? viaUs : '';
-        if (!shown) { why = 'Your picture was made, but it would not load on this internet connection. Switch between Wi-Fi and mobile data and try again.'; throw new Error('result did not load'); }
+        if (!shown) { code = 'result_no_load'; why = 'Your picture was made, but it would not load on this internet connection. Switch between Wi-Fi and mobile data and try again.'; throw new Error('result did not load'); }
         // photos retaken or the screen closed meanwhile: this picture is of the old photo, so drop it
         if (mine === session) { results.set(key, shown); if (fab && data.garment) stitched.set(sKey, data.garment); }
+        sendProblems(); // the server is reachable now: deliver any notes that were waiting
       }
     } catch (e) {
       console.warn('AI try-on failed', e);
+      reportProblem(`tryon.${code || (ctl.signal.aborted ? 'timeout' : 'dropped')}`, String(e && e.message || e), { outfit: fab ? 'my fabric' : look.style, photo: side, seconds: Math.round((performance.now() - began) / 1000) });
       if (mine === session) {
         notice = why || (ctl.signal.aborted ? 'This took too long, so we stopped. Your internet connection may be slow or blocking the try-on server. Try again on Wi-Fi or mobile data.'
           : 'The connection dropped while your picture was being made. Check your internet and try again.');
+        notice += ' We have noted this problem so it can be fixed.';
         toast('Could not make the picture');
       }
     }

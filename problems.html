@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Miraal problems</title>
+  <style>
+    :root { --bg: #f6f1ea; --card: #fffdf9; --ink: #1d1a16; --ink-2: #5d564c; --line: #e2d8ca; --gold: #a9762a; --bad: #b3402e; --ok: #1f8a5b; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
+    h1 { font: 400 34px/1.1 Georgia, "Times New Roman", serif; margin: 0 0 4px; }
+    .sub { color: var(--ink-2); margin: 0 0 20px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
+    form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+    label { display: grid; gap: 6px; font-size: 14px; color: var(--ink-2); flex: 1 1 240px; }
+    input { height: 46px; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; font: inherit; background: #fff; }
+    button { height: 46px; padding: 0 20px; border-radius: 999px; border: 0; background: var(--ink); color: #fff; font: 600 15px system-ui, sans-serif; cursor: pointer; }
+    button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+    #status { margin: 12px 0 0; font-size: 14.5px; color: var(--ink-2); min-height: 21px; }
+    #status.bad { color: var(--bad); }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 18px 0; }
+    .tile b { display: block; font: 400 32px/1 Georgia, serif; }
+    .tile span { font-size: 13.5px; color: var(--ink-2); }
+    h2 { font: 400 22px Georgia, serif; margin: 26px 0 10px; }
+    .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 0 0 12px; }
+    .kinds { display: grid; gap: 8px; }
+    .kind { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+    .kind b { font-weight: 600; }
+    .kind small { grid-column: 1 / -1; color: var(--ink-2); }
+    .kind em { font-style: normal; color: var(--gold); font-weight: 600; white-space: nowrap; }
+    .list { display: grid; gap: 8px; }
+    .row { padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; display: grid; gap: 4px; }
+    .row .top { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; justify-content: space-between; }
+    .row .what { font-weight: 600; }
+    .row .when { color: var(--ink-2); font-size: 13.5px; white-space: nowrap; }
+    .row .msg { font-size: 14.5px; overflow-wrap: anywhere; }
+    .row .meta { font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+    .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; background: #f1e8da; color: var(--ink-2); margin-right: 6px; }
+    .tag.srv { background: #e6efe9; color: var(--ok); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Miraal problems</h1>
+  <p class="sub">Every time a visitor hits a problem, a short note lands here. No pictures are ever stored.</p>
+
+  <div class="card">
+    <form id="f">
+      <label>Your private code
+        <input id="code" type="password" autocomplete="current-password" required minlength="8" placeholder="The code you saved in Cloudflare">
+      </label>
+      <button type="submit">Show problems</button>
+      <button type="button" class="ghost" id="forget" hidden>Lock</button>
+    </form>
+    <p id="status" role="status"></p>
+  </div>
+
+  <div id="out" hidden>
+    <div class="tiles" id="tiles"></div>
+    <h2>What goes wrong most (last 7 days)</h2>
+    <div class="kinds" id="kinds"></div>
+    <h2>Latest problems</h2>
+    <div class="bar">
+      <button type="button" class="ghost" id="refresh">Refresh</button>
+      <button type="button" class="ghost" id="copy">Copy report for Claude</button>
+    </div>
+    <div class="list" id="list"></div>
+  </div>
+</main>
+
+<script type="module">
+  import { TRYON_API, TRYON_API_ALT } from './config.js?v=23';
+  const LOCAL_API = location.hostname === 'localhost' && new URLSearchParams(location.search).get('tryon');
+  const APIS = LOCAL_API ? LOCAL_API.split(',') : [TRYON_API, ...(TRYON_API_ALT || [])].filter(Boolean);
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // plain-language names and what to do about each kind of problem
+  const KINDS = {
+    'tryon.unreachable': ['Phone could not reach the try-on server', 'The visitor\'s internet blocked or dropped the connection. Many of these from one internet provider means that provider is the cause.'],
+    'tryon.timeout': ['Real try-on took too long and was stopped', 'Slow or unstable internet, or the AI service was slow.'],
+    'tryon.dropped': ['Connection dropped while the picture was being made', 'Usually the visitor\'s internet. Worth a look if it repeats.'],
+    'tryon.ai_failed': ['The AI could not make the picture', 'Often an unclear photo. Many in a row may mean the AI service has a problem or the credit ran out.'],
+    'tryon.bad_photo': ['The server refused the photo', 'The photo was missing or too large. Tell Claude if this appears.'],
+    'tryon.not_setup': ['The try-on server said it is not set up', 'Check the fal.ai key and the allowed site address in Cloudflare.'],
+    'tryon.result_no_load': ['The picture was made but would not load on the phone', 'The visitor\'s internet could not open the finished picture.'],
+    'tryon.camera_denied': ['Visitor did not allow the camera (try-on)', 'Normal now and then. Many of these may mean the request screen is unclear.'],
+    'tryon.camera_failed': ['Camera did not start (try-on)', 'Another app was using the camera, or the phone has no usable camera.'],
+    'tryon.no_camera_api': ['Browser cannot use the camera (try-on)', 'Usually the page was opened inside another app such as Facebook or Instagram.'],
+    'tryon.tracker_load': ['Body tracker did not load (try-on)', 'Slow internet, or the phone could not download the tracker.'],
+    'tryon.tracker_crash': ['Body tracker stopped working (try-on)', 'The phone could not run the tracker. Note the phone type.'],
+    'tryon.capture_stuck': ['Visitor was stuck taking the photo for 45 seconds', 'The message shows the hint they kept seeing. This is where the photo step is too strict or unclear.'],
+    'fabric.open_failed': ['Fabric picture could not be opened', 'The link was not a picture, or the shop blocks it.'],
+    'scan.camera_denied': ['Visitor did not allow the camera (body scan)', 'Normal now and then.'],
+    'scan.camera_failed': ['Camera did not start (body scan)', 'Another app was using the camera, or no usable camera.'],
+    'scan.no_camera_api': ['Browser cannot use the camera (body scan)', 'Usually opened inside another app.'],
+    'scan.tracker_load': ['Body tracker did not load (body scan)', 'Slow internet or a download problem.'],
+    'scan.tracker_crash': ['Body tracker stopped working (body scan)', 'The phone could not run the tracker. Note the phone type.'],
+    'scan.step_stuck': ['Visitor was stuck on a scan step for 40 seconds', 'The message shows the hint they kept seeing. This is where the scan is too strict or unclear.'],
+    'scan.steps_skipped': ['Visitor skipped scan steps', 'Those measurements were estimated from height.'],
+    'scan.value_limited': ['A measurement came out far from usual and was limited', 'Loose clothes or things behind the person. If it repeats, the measuring needs tuning.'],
+    'scan.size_guessed': ['Scan finished without a real chest and hips measurement', 'The size shown was guessed from height only.'],
+    'page.error': ['A code error happened on the page', 'Send this to Claude. It is a bug to fix.'],
+    'server.ai_failed': ['Server: the AI did not return a picture', 'Seen by the server itself.'],
+    'server.stitch_failed': ['Server: the suit could not be stitched from the fabric picture', 'Seen by the server itself.'],
+    'server.ai_unreachable': ['Server: the AI service could not be reached', 'fal.ai was down or the key or credit has a problem.'],
+    'server.limit_reached': ['A visitor reached the daily limit', 'Not a fault. Someone wanted more than the free try-ons.'],
+  };
+  const name = (k) => (KINDS[k] || [k])[0];
+  const when = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); };
+  // {"outfit":"shalwar","photo":"front"} -> outfit: shalwar, photo: front
+  const plain = (x) => { try { const o = JSON.parse(x); return Object.entries(o).map(([k, v]) => k.replace(/_/g, ' ') + ': ' + v).join(', '); } catch { return x || ''; } };
+  let data = null;
+
+  function show() {
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = data.rows || [], kinds = data.byKind || [];
+    const week = kinds.reduce((s, k) => s + k.n, 0);
+    const people = new Set(rows.filter((r) => r.visitor).map((r) => r.visitor)).size;
+    $('#tiles').innerHTML = [
+      [rows.filter((r) => (r.at || '').slice(0, 10) === today).length, 'problems today'],
+      [week, 'in the last 7 days'],
+      [people, 'different phones in this list'],
+    ].map(([n, l]) => `<div class="card tile"><b>${n}</b><span>${l}</span></div>`).join('');
+    $('#kinds').innerHTML = kinds.length ? kinds.map((k) => `<div class="kind"><b>${esc(name(k.kind))}</b><em>${k.n} ${k.n === 1 ? 'time' : 'times'} · ${k.people} ${k.people === 1 ? 'phone' : 'phones'}</em><small>${esc((KINDS[k.kind] || [])[1] || '')}</small></div>`).join('')
+      : '<p class="sub">Nothing in the last 7 days.</p>';
+    $('#list').innerHTML = rows.length ? rows.map((r) => {
+      const late = r.client_at && Math.abs(new Date(r.at) - new Date(r.client_at)) > 120000;
+      return `<div class="row">
+        <div class="top"><span class="what">${esc(name(r.kind))}</span><span class="when">${esc(when(r.client_at || r.at))}${late ? ' · sent later' : ''}</span></div>
+        ${r.msg ? `<div class="msg">${esc(r.msg)}</div>` : ''}
+        <div class="meta"><span class="tag${r.kind.startsWith('server.') ? ' srv' : ''}">${esc(r.place || 'Server')}</span>${esc([r.device, r.net, r.isp, r.country, r.ver ? 'site v' + r.ver : '', plain(r.extra)].filter(Boolean).join(' · '))}</div>
+      </div>`;
+    }).join('') : '<p class="sub">No problems recorded yet.</p>';
+    $('#out').hidden = false; $('#forget').hidden = false;
+  }
+
+  async function load(code) {
+    const st = $('#status'); st.className = ''; st.textContent = 'Loading…';
+    let lastErr = 'The server could not be reached from this internet connection.';
+    for (const api of APIS) {
+      try {
+        const r = await fetch(`${api}?problems=1`, { headers: { Authorization: `Bearer ${code}` }, cache: 'no-store' });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) { data = d; try { sessionStorage.setItem('miraal.code', code); } catch {} st.textContent = `Updated ${when(d.now)}`; show(); return; }
+        lastErr = r.status === 401 ? 'That code is not right.' : r.status === 503 ? 'The problems page is not switched on yet. Add your code in Cloudflare first (name: ADMIN_KEY).' : (d.error || `The server said ${r.status}.`);
+        break;
+      } catch { /* try the next address */ }
+    }
+    st.className = 'bad'; st.textContent = lastErr;
+  }
+
+  $('#f').addEventListener('submit', (e) => { e.preventDefault(); load($('#code').value.trim()); });
+  $('#refresh').addEventListener('click', () => load($('#code').value.trim()));
+  $('#forget').addEventListener('click', () => { try { sessionStorage.removeItem('miraal.code'); } catch {} $('#code').value = ''; data = null; $('#out').hidden = true; $('#forget').hidden = true; $('#status').textContent = 'Locked.'; });
+  $('#copy').addEventListener('click', async () => {
+    if (!data) return;
+    const lines = ['Miraal problem report, ' + new Date().toISOString(), '', 'Last 7 days by kind:',
+      ...(data.byKind || []).map((k) => `- ${k.kind}: ${k.n} times, ${k.people} phones`), '', 'Latest:',
+      ...(data.rows || []).slice(0, 60).map((r) => `- ${r.client_at || r.at} | ${r.kind} | ${r.msg || ''} | ${[r.place, r.device, r.net, r.isp, r.country, 'v' + (r.ver || '?'), r.extra].filter(Boolean).join(' | ')}`)];
+    try { await navigator.clipboard.writeText(lines.join('\n')); $('#status').className = ''; $('#status').textContent = 'Copied. Paste it into your chat with Claude.'; }
+    catch { $('#status').className = 'bad'; $('#status').textContent = 'Could not copy. Select the list and copy it by hand.'; }
+  });
+  try { const saved = sessionStorage.getItem('miraal.code'); if (saved) { $('#code').value = saved; load(saved); } } catch {}
+</script>
+</body>
+</html>

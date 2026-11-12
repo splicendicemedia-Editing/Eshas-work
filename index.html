@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=22">
+  <link rel="stylesheet" href="styles.css?v=23">
   <script type="importmap">
     { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -139,7 +139,7 @@
           <div class="measure-panel glass reveal">
             <div class="panel-head">
               <label class="height-input">Your height
-                <input id="heightIn" type="number" value="168" min="130" max="215" inputmode="numeric"> cm
+                <input id="heightIn" type="number" value="1.68" min="1.3" max="2.15" step="0.01" inputmode="decimal"> m
                 <small class="h-ft-hint" id="heightFt"></small>
               </label>
               <span class="badge" id="mBadge">Live estimate</span>
@@ -571,10 +571,10 @@
         <div class="setup-height-top">
           <label for="setupH">1 · Your height</label>
           <div class="unit-toggle" role="group" aria-label="Height unit">
-            <button type="button" data-unit="cm" class="on">cm</button><button type="button" data-unit="ft">ft / in</button>
+            <button type="button" data-unit="cm" class="on">metres</button><button type="button" data-unit="ft">ft / in</button>
           </div>
         </div>
-        <div class="h-row h-cm"><input id="setupH" type="number" inputmode="numeric" min="130" max="215" aria-label="Height in centimetres"><span>cm</span></div>
+        <div class="h-row h-cm"><input id="setupH" type="number" inputmode="decimal" min="1.3" max="2.15" step="0.01" placeholder="1.68" aria-label="Height in metres"><span>m</span></div>
         <div class="h-row h-ft" hidden><input id="setupFt" type="number" inputmode="numeric" min="4" max="7" aria-label="Feet"><span>ft</span><input id="setupIn" type="number" inputmode="numeric" min="0" max="11" aria-label="Inches"><span>in</span></div>
         <p class="setup-err" id="setupErr" role="alert"></p>
       </div>
@@ -607,6 +607,7 @@
         <li><span><b>We do not keep your picture.</b> No photo or video is saved — ever.</span></li>
         <li><span><b>Deleted right after you try it.</b> The camera switches off and every frame is discarded as soon as the scan ends.</span></li>
         <li><span><b>Stays on your device.</b> Body tracking runs inside your browser. Nothing is uploaded.</span></li>
+        <li><span><b>If something goes wrong,</b> a short note is sent so we can fix it: what failed, your phone type and your internet provider. Never a picture.</span></li>
         <li><span><b>Only numbers remain</b> — and only if you choose to save them to your profile.</span></li>
       </ul>
 
@@ -624,7 +625,7 @@
       <p class="modal-sub">Save your size once and get the right fit in every store. Profiles hold measurements only — never photos.</p>
       <div class="pf-fields">
         <label class="field"><span>Name</span><input id="pfName" type="text" maxlength="60" autocomplete="given-name" placeholder="Your name" required></label>
-        <label class="field"><span>Height (cm)</span><input id="pfHeight" type="number" min="130" max="215" inputmode="numeric"></label>
+        <label class="field"><span>Height (m)</span><input id="pfHeight" type="number" min="1.3" max="2.15" step="0.01" inputmode="decimal"></label>
       </div>
       <fieldset class="fit-pref">
         <legend>How do you like clothes to fit?</legend>
@@ -645,6 +646,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="main.js?v=22"></script>
+  <script type="module" src="main.js?v=23"></script>
 </body>
 </html>
