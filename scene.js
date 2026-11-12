@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { STYLES, FABRICS, COLORS, SIZES, LOOKBOOK, lookFor } from './catalog.js?v=21';
+import { STYLES, FABRICS, COLORS, SIZES, LOOKBOOK, lookFor } from './catalog.js?v=22';
 
 /* ------------------------------------------------------------------ helpers */
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));

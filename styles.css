@@ -891,3 +891,4 @@ body.mirror-open { overflow: hidden; }
 .mirror-stage:not([data-mode="capture"]) #mrFlip { display: none; }
 .mr-count { position: absolute; z-index: 3; left: 50%; top: 40%; transform: translate(-50%, -50%); font-family: var(--serif); font-size: min(46vw, 240px); line-height: 1; color: #fff; text-shadow: 0 6px 40px rgba(0, 0, 0, .65); pointer-events: none; display: none; }
 .mirror-stage[data-mode="capture"] .mr-count { display: block; }
+.mr-left.warn { margin: 0 16px; color: #ffd9a0; background: rgba(255, 170, 60, .12); border: 1px solid rgba(255, 190, 110, .45); border-radius: 12px; padding: 8px 12px; font-size: 14px; line-height: 1.35; }

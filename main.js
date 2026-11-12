@@ -1,7 +1,7 @@
-import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=21';
-import { initCamera } from './camera.js?v=21';
-import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=21';
-import { initMirror } from './mirror.js?v=21';
+import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=22';
+import { initCamera } from './camera.js?v=22';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=22';
+import { initMirror } from './mirror.js?v=22';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -51,7 +51,7 @@ const studioLook = lookFor('shalwar');
 let collection = 'pk';
 let scene = null;
 
-import('./scene.js?v=21')
+import('./scene.js?v=22')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();

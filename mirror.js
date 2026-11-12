@@ -7,9 +7,9 @@
 //      and only after the person agreed to it on the start card).
 // Photos live in memory only and are wiped on Close.
 
-import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=21';
-import { getLandmarker } from './pose.js?v=21';
-import { TRYON_API, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=21';
+import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=22';
+import { getLandmarker } from './pose.js?v=22';
+import { TRYON_API, TRYON_API_ALT, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=22';
 
 const $ = (s) => document.querySelector(s);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -29,7 +29,22 @@ const COUNT_MS = 3000; // hold still this long (3, 2, 1) and the photo is taken
 const CAM_KEY = 'mirra.cam'; // 'user' (front camera) or 'environment' (back camera, someone else holds the phone)
 const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* blocked */ } } };
 // on a developer machine the server address can be given as ?tryon=<url> for testing
-const API = (location.hostname === 'localhost' && new URLSearchParams(location.search).get('tryon')) || TRYON_API;
+const LOCAL_API = location.hostname === 'localhost' && new URLSearchParams(location.search).get('tryon');
+const APIS = LOCAL_API ? LOCAL_API.split(',') : [TRYON_API, ...(TRYON_API_ALT || [])].filter(Boolean);
+let API = APIS[0] || ''; // the address in use; changes if another one turns out to be reachable
+// does this address answer at all from this phone's internet connection?
+async function reachable(url, ms = 7000) {
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
+  try { await fetch(url, { method: 'GET', mode: 'no-cors', cache: 'no-store', signal: ctl.signal }); return true; }
+  catch { return false; }
+  finally { clearTimeout(t); }
+}
+const loads = (url, ms = 20000) => new Promise((res) => {
+  const im = new Image(), t = setTimeout(() => { im.src = ''; res(false); }, ms);
+  im.onload = () => { clearTimeout(t); res(true); };
+  im.onerror = () => { clearTimeout(t); res(false); };
+  im.src = url;
+});
 
 export function initMirror({ onStage, toast }) {
   const stage = $('#mirrorStage'), video = $('#mrVideo');
@@ -45,6 +60,7 @@ export function initMirror({ onStage, toast }) {
   let step = 'front', prev = null, stepStart = 0, lum = 140, lastLm = null;
   let holdStart = 0, badSince = 0, forced = false, lastFrameT = 0, shownCount = 0;
   let camWant = 'user', rear = false, flipping = false, camRun = 0, session = 0, audio = null, badFrames = 0;
+  let notice = ''; // why the last real try-on did not work; stays on screen until the next try
   let photos = { front: null, back: null };   // { canvas, lm, url }
   let side = 'front';
   let tab = 'women';                             // 'women' | 'men' | 'fabric'
@@ -126,6 +142,7 @@ export function initMirror({ onStage, toast }) {
   sideEl.addEventListener('click', (e) => { const b = e.target.closest('[data-side]'); if (b && photos[b.dataset.side]) { side = b.dataset.side; show(); } });
 
   function setLook(next) {
+    if (next.style !== look.style) notice = '';
     look = { ...next };
     rail.querySelectorAll('[data-style]').forEach((b) => b.classList.toggle('active', b.dataset.style === look.style));
     colorsEl.querySelectorAll('[data-color]').forEach((b) => b.classList.toggle('active', b.dataset.color === look.color));
@@ -157,6 +174,7 @@ export function initMirror({ onStage, toast }) {
     for (const p of Object.values(photos)) if (p) { p.canvas.width = p.canvas.height = 0; if (p.url) URL.revokeObjectURL(p.url); }
     photos = { front: null, back: null }; results.clear(); stitched.clear(); side = 'front';
     session++; busy.hidden = true; // a picture still being made belongs to the old photos
+    notice = '';
     img.removeAttribute('src'); dctx.setTransform(1, 0, 0, 1, 0, 0); dctx.clearRect(0, 0, drawCv.width, drawCv.height);
   }
   document.querySelectorAll('[data-open-mirror]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); open(null, b.dataset.openMirror || null); }));
@@ -228,7 +246,7 @@ export function initMirror({ onStage, toast }) {
     navigator.mediaDevices.enumerateDevices?.().then((d) => { flipBtn.hidden = d.filter((x) => x.kind === 'videoinput').length < 2; }).catch(() => {});
     statusEl.textContent = 'Getting ready… a few seconds the first time.';
     try {
-      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=21')]);
+      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=22')]);
     } catch (e) {
       console.warn('Try-on could not load', e);
       if (run !== camRun) return;
@@ -445,7 +463,8 @@ export function initMirror({ onStage, toast }) {
     realBtn.hidden = !API || !!real || (fab && !cloth);
     realBtn.disabled = left <= 0;
     realBtn.textContent = left > 0 ? 'See it for real' : 'No real try-ons left today';
-    leftEl.textContent = !API ? 'Realistic AI try-on is not switched on yet. This is a drawn preview.'
+    leftEl.classList.toggle('warn', !!notice && !real);
+    leftEl.textContent = notice && !real ? notice : !API ? 'Realistic AI try-on is not switched on yet. This is a drawn preview.'
       : real ? `${left} of ${DAILY_LIMIT} real try-ons left today` : left > 0 ? `Uses 1 of your ${left} real try-ons left today` : 'Come back tomorrow for more. The preview still works.';
   }
 
@@ -461,29 +480,56 @@ export function initMirror({ onStage, toast }) {
     const payload = fab
       ? { person, side, ...(stitched.has(sKey) ? { garment: stitched.get(sKey) } : { fabric: cloth.data, stitch }) }
       : { person, garment: photoUrl(look.style, 800), style: look.style, side };
-    busy.querySelector('b').textContent = fab && !stitched.has(sKey) ? 'Stitching your suit…' : 'Creating your look…';
-    busy.querySelector('small').textContent = fab && !stitched.has(sKey) ? 'About 40 seconds' : 'About 20 seconds';
+    const slow = fab && !stitched.has(sKey);
+    const say = (b, small) => { busy.querySelector('b').textContent = b; busy.querySelector('small').textContent = small; };
+    notice = '';
+    say('Connecting…', 'A few seconds');
     busy.hidden = false; realBtn.disabled = true;
+    const ctl = new AbortController();
+    let timer = 0, why = '';
     try {
+      // 1. find a server address this internet connection can reach (some providers block one of them)
+      let api = '';
+      for (let round = 0; round < 2 && !api; round++) for (const a of APIS) if (await reachable(a)) { api = a; break; }
+      if (!api) { why = 'Your internet connection cannot reach our try-on server. Switch between Wi-Fi and mobile data, then tap See it for real again.'; throw new Error('server unreachable'); }
+      API = api;
+      // 2. send the photo; give up with a clear message instead of spinning for ever
+      say(slow ? 'Stitching your suit…' : 'Creating your look…', slow ? 'About 40 seconds' : 'About 20 seconds');
+      timer = setTimeout(() => ctl.abort(), slow ? 150000 : 90000);
       const r = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payload), signal: ctl.signal,
       });
       const data = await r.json().catch(() => ({}));
       // keep the stitched suit even when the try-on step failed, so a retry does not stitch (and cost) again
       if (fab && data.garment && mine === session) stitched.set(sKey, data.garment);
       const count = () => store.set(dayKey(), String(typeof data.left === 'number' ? DAILY_LIMIT - data.left : used() + 1));
       if (r.status === 429) { store.set(dayKey(), String(DAILY_LIMIT)); toast('You have used today’s real try-ons'); }
-      else if (!r.ok || !data.image) { if (typeof data.left === 'number') count(); throw new Error(data.error || `Server said ${r.status}`); }
-      else {
+      else if (!r.ok || !data.image) {
+        if (typeof data.left === 'number') count();
+        why = r.status === 502 ? 'The AI could not make this picture. Try again, or retake the photo with your whole body in view and good light.'
+          : r.status === 503 || r.status === 403 ? 'The try-on server is not set up for this site yet.'
+          : 'The photo could not be used. Retake it and try again.';
+        throw new Error(data.error || `Server said ${r.status}`);
+      } else {
         count();
+        // 3. make sure the finished picture really opens on this connection; if not, fetch it through our server
+        say('Almost there…', 'Loading your picture');
+        const viaUs = `${API}?img=${encodeURIComponent(data.image)}`;
+        const shown = (await loads(data.image)) ? data.image : (await loads(viaUs)) ? viaUs : '';
+        if (!shown) { why = 'Your picture was made, but it would not load on this internet connection. Switch between Wi-Fi and mobile data and try again.'; throw new Error('result did not load'); }
         // photos retaken or the screen closed meanwhile: this picture is of the old photo, so drop it
-        if (mine === session) { results.set(key, data.image); if (fab && data.garment) stitched.set(sKey, data.garment); }
+        if (mine === session) { results.set(key, shown); if (fab && data.garment) stitched.set(sKey, data.garment); }
       }
     } catch (e) {
       console.warn('AI try-on failed', e);
-      if (mine === session) toast('Could not make the picture. Please try again.');
+      if (mine === session) {
+        notice = why || (ctl.signal.aborted ? 'This took too long, so we stopped. Your internet connection may be slow or blocking the try-on server. Try again on Wi-Fi or mobile data.'
+          : 'The connection dropped while your picture was being made. Check your internet and try again.');
+        toast('Could not make the picture');
+      }
     }
+    clearTimeout(timer);
     if (mine !== session) return;
     busy.hidden = true;
     if (stage.classList.contains('open') && stage.dataset.mode === 'looks') show();
