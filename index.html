@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=5">
+  <link rel="stylesheet" href="styles.css?v=10">
   <script type="importmap">
     { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -215,10 +215,12 @@
         <div class="studio-panel glass reveal">
           <p class="eyebrow">Live try-on studio</p>
           <h2 class="h2 sm">Dress your <em>digital twin.</em></h2>
-          <p class="look-name" id="lookName">Silk Slip · Champagne satin silk</p>
+          <p class="look-name" id="lookName">Shalwar Kameez · Mustard lawn cotton</p>
 
-          <div class="ctrl"><span class="ctrl-label">Look</span><div class="chips" data-group="style"></div></div>
+          <div class="coll-tabs" role="tablist" aria-label="Collection" id="collTabs"></div>
+          <div class="ctrl"><span class="ctrl-label">Outfit</span><div class="chips" data-group="style"></div></div>
           <div class="ctrl"><span class="ctrl-label">Fabric</span><div class="chips" data-group="fabric"></div></div>
+          <div class="ctrl"><span class="ctrl-label">Pattern</span><div class="chips" data-group="pattern"></div></div>
           <div class="ctrl"><span class="ctrl-label">Colour</span><div class="swatches" data-group="color"></div></div>
           <div class="ctrl"><span class="ctrl-label">Size</span><div class="sizes" data-group="size"></div></div>
 
@@ -519,6 +521,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="main.js?v=5"></script>
+  <script type="module" src="main.js?v=10"></script>
 </body>
 </html>

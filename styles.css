@@ -252,6 +252,13 @@ h1 em, .h1-alt em, .h2 em, .step-card h2 em { color: var(--gold-2); }
 .studio-panel { padding: 30px; }
 .look-name { font-size: 14px; color: var(--muted); margin-bottom: 18px; min-height: 1.5em; }
 .ctrl { margin-top: 18px; }
+.coll-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 5px; border-radius: 18px; background: rgba(0, 0, 0, .3); border: 1px solid var(--line); }
+.coll-tabs button { display: grid; gap: 1px; padding: 9px 6px; border-radius: 13px; text-align: center; color: var(--ink-2); transition: .25s; }
+.coll-tabs button b { font-size: 14px; font-weight: 600; }
+.coll-tabs button small { font-size: 10.5px; color: var(--muted); letter-spacing: .04em; }
+.coll-tabs button:hover { background: rgba(255, 255, 255, .05); }
+.coll-tabs button.active { background: linear-gradient(160deg, var(--gold-2), var(--gold)); color: #1b140b; }
+.coll-tabs button.active small { color: rgba(27, 20, 11, .7); }
 .ctrl-label { display: block; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
 .chips, .sizes { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip, .size { height: 38px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-2); font-size: 14px; transition: .25s; background: rgba(255, 255, 255, .03); position: relative; }

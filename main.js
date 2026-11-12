@@ -1,6 +1,6 @@
-import { STYLES, FABRICS, COLORS, SIZES } from './catalog.js?v=5';
-import { initCamera } from './camera.js?v=5';
-import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=5';
+import { STYLES, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, lookFor } from './catalog.js?v=10';
+import { initCamera } from './camera.js?v=10';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=10';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -46,10 +46,11 @@ function toast(msg) {
 }
 
 /* ---------------- 3D scene ---------------- */
-const studioLook = { style: 'slip', fabric: 'silk', color: 'champagne', size: 'M' };
+const studioLook = lookFor('shalwar');
+let collection = 'pk';
 let scene = null;
 
-import('./scene.js?v=5')
+import('./scene.js?v=10')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();
@@ -77,7 +78,19 @@ function observeStates() {
 
 /* ---------------- studio controls ---------------- */
 function buildStudio() {
-  $('[data-group="style"]').innerHTML = Object.entries(STYLES).map(([k, v]) => `<button class="chip" type="button" data-v="${k}">${v.label}</button>`).join('');
+  // collections: Pakistani / British / American
+  $('#collTabs').innerHTML = Object.entries(COLLECTIONS).map(([k, v]) => `<button type="button" role="tab" data-coll="${k}"><b>${v.label}</b><small>${v.flag}</small></button>`).join('');
+  $('#collTabs').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-coll]');
+    if (!b || b.dataset.coll === collection) return;
+    collection = b.dataset.coll;
+    renderOutfits();
+    const first = Object.keys(STYLES).find((k) => STYLES[k].region === collection);
+    Object.assign(studioLook, lookFor(first, studioLook.size));
+    syncStudio();
+  });
+  renderOutfits();
+  $('[data-group="pattern"]').innerHTML = Object.entries(PATTERNS).map(([k, v]) => `<button class="chip" type="button" data-v="${k}">${v.label}</button>`).join('');
   $('[data-group="fabric"]').innerHTML = Object.entries(FABRICS).map(([k, v]) => `<button class="chip" type="button" data-v="${k}">${v.label}</button>`).join('');
   $('[data-group="color"]').innerHTML = Object.entries(COLORS).map(([k, v]) => `<button class="swatch" type="button" data-v="${k}" style="--c:${v.hex}" aria-label="${v.label}" title="${v.label}"><span></span></button>`).join('');
   renderSizes();
@@ -86,8 +99,9 @@ function buildStudio() {
     const b = e.target.closest('button');
     if (!b) return;
     const key = group.dataset.group;
-    studioLook[key] = b.dataset.v;
-    if (key === 'style') studioLook.fabric = STYLES[b.dataset.v].fabric;
+    // picking an outfit loads its signature fabric, pattern and colour; the size stays
+    if (key === 'style') Object.assign(studioLook, lookFor(b.dataset.v, studioLook.size));
+    else studioLook[key] = b.dataset.v;
     syncStudio();
   }));
 
@@ -99,9 +113,10 @@ function buildStudio() {
   $('#randomLook').addEventListener('click', () => {
     const pick = (o) => { const k = Object.keys(o); return k[Math.floor(Math.random() * k.length)]; };
     let next;
-    do { next = { style: pick(STYLES), fabric: pick(FABRICS), color: pick(COLORS) }; }
+    do { next = { ...lookFor(pick(STYLES), studioLook.size), color: pick(COLORS), pattern: pick(PATTERNS) }; }
     while (next.style === studioLook.style && next.color === studioLook.color);
     Object.assign(studioLook, next);
+    if (STYLES[next.style].region !== collection) { collection = STYLES[next.style].region; renderOutfits(); }
     syncStudio();
   });
 
@@ -130,6 +145,11 @@ function renderSizes() {
   const mine = mySize || 'M';
   $('[data-group="size"]').innerHTML = SIZE_KEYS.map((k) => `<button class="size" type="button" data-v="${k}">${k}${k === mine ? `<i>${mySize ? 'Your size' : 'Typical'}</i>` : ''}</button>`).join('');
 }
+function renderOutfits() {
+  $$('#collTabs [data-coll]').forEach((b) => { const on = b.dataset.coll === collection; b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on)); });
+  $('[data-group="style"]').innerHTML = Object.entries(STYLES).filter(([, v]) => v.region === collection)
+    .map(([k, v]) => `<button class="chip" type="button" data-v="${k}">${v.label}</button>`).join('');
+}
 function syncStudio() {
   $$('[data-group]').forEach((g) => $$('button', g).forEach((b) => b.classList.toggle('active', b.dataset.v === studioLook[g.dataset.group])));
   const s = SIZES[fitKeyFor(studioLook.size)];
@@ -138,7 +158,8 @@ function syncStudio() {
   fill.dataset.tone = s.tone;
   const text = mySize && studioLook.size === mySize ? 'Your size — ideal fit' : s.text;
   $('#fitText').textContent = `${text} · ${s.fit}% fit`;
-  $('#lookName').textContent = `${STYLES[studioLook.style].label} · ${COLORS[studioLook.color].label} ${FABRICS[studioLook.fabric].label.toLowerCase()} · size ${studioLook.size}`;
+  const pat = studioLook.pattern && studioLook.pattern !== 'plain' ? ` · ${PATTERNS[studioLook.pattern].label.toLowerCase()}` : '';
+  $('#lookName').textContent = `${STYLES[studioLook.style].label} · ${COLORS[studioLook.color].label} ${FABRICS[studioLook.fabric].label.toLowerCase()}${pat} · size ${studioLook.size}`;
   // the 3D garment drapes with the ease of the *relative* fit, so a size that is too small looks tight on you
   scene?.setStudioLook({ ...studioLook, size: fitKeyFor(studioLook.size) });
 }

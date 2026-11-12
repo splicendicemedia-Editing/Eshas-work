@@ -4,7 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { STYLES, FABRICS, COLORS, SIZES, LOOKBOOK } from './catalog.js?v=5';
+import { STYLES, FABRICS, COLORS, SIZES, LOOKBOOK, lookFor } from './catalog.js?v=10';
 
 /* ------------------------------------------------------------------ helpers */
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -47,15 +47,10 @@ function surface(th, y, off, o) {
   return shapeXZ(r * Math.sin(th), y, r * Math.cos(th), o);
 }
 const WAIST_Y = 0.515;
-const R_WAIST = bodyR(WAIST_Y);
 // below the widest hip point fabric falls straight instead of tucking back under the form
 const HIP = SIDE_PTS.filter((p) => p.y < 0.4).reduce((a, p) => (p.x > a.x ? p : a));
 const skirtBase = (y) => (y < HIP.y ? Math.max(bodyR(y), HIP.x) : bodyR(y));
 const smax = (a, b, k) => (a + b + Math.sqrt((a - b) * (a - b) + k * k)) / 2;
-function garmentBaseR(p, ease, y) {
-  const s = clamp((WAIST_Y - y) / (WAIST_Y - p.bottom), 0, 1);
-  return smax(skirtBase(y) + ease, R_WAIST + ease + p.flare * Math.pow(s, p.flarePow), 0.035 * Math.min(1, s * 6));
-}
 function fixSeam(geo, segs, rows) {
   const n = geo.attributes.normal;
   for (let j = 0; j < rows; j++) {
@@ -96,6 +91,170 @@ function makeDot() {
 }
 
 /* ----------------------------------------------------------------- garment */
+// Outfits are worn "ghost mannequin" style on the dress form: the main body is a deforming
+// surface around the form; sleeves, trouser legs and the dupatta are extra meshes built from
+// the same fabric so the whole outfit moves, transitions and resizes together.
+const frontness = (th) => { const c = Math.cos(th); return c > 0 ? c * c : 0; };
+const topAt = (p, th) => (p.neck ? p.neck.y - p.neck.dip * frontness(th) : p.top);
+const topMax = (p) => (p.neck ? p.neck.y : p.top);
+const flareStart = (p) => p.waist ?? WAIST_Y;
+function garmentBaseR(p, ease, y) {
+  const w = flareStart(p);
+  const s = clamp((w - y) / (w - p.bottom), 0, 1);
+  return smax(skirtBase(y) + ease, bodyR(w) + ease + p.flare * Math.pow(s, p.flarePow), 0.035 * Math.min(1, s * 6));
+}
+const LEG_BOTTOM = -1.07;
+const TROUSERS = {
+  // radius along the leg (t = 0 hip … 1 ankle) and fold strength
+  // x0/x1: leg centre at hip / ankle
+  shalwar: { r: [[0, 0.155], [0.35, 0.15], [0.7, 0.13], [0.9, 0.085], [0.94, 0.06], [1, 0.058]], folds: 0.012, n: 13, x0: 0.11, x1: 0.13 },
+  slim:    { r: [[0, 0.14], [0.3, 0.1], [0.65, 0.07], [1, 0.054]], folds: 0.002, n: 6, x0: 0.11, x1: 0.13 },
+  wide:    { r: [[0, 0.15], [0.4, 0.13], [1, 0.145]], folds: 0.009, n: 5, x0: 0.13, x1: 0.18 },
+};
+const keyLerp = (keys, t) => {
+  for (let i = 1; i < keys.length; i++) if (t <= keys[i][0]) { const [t0, a] = keys[i - 1], [t1, b] = keys[i]; return lerp(a, b, (t - t0) / (t1 - t0 || 1)); }
+  return keys[keys.length - 1][1];
+};
+
+// tapered tube along a curve; rFn(t, angle) gives the radius, uv window keeps prints at the same scale as the body
+function tubeGeometry(curve, rFn, segs, rad, uvw) {
+  const frames = curve.computeFrenetFrames(segs, false);
+  const pos = [], uv = [], idx = [];
+  const P = new THREE.Vector3();
+  for (let i = 0; i <= segs; i++) {
+    const t = i / segs;
+    curve.getPointAt(t, P);
+    const N = frames.normals[i], B = frames.binormals[i];
+    for (let j = 0; j <= rad; j++) {
+      const a = (j / rad) * Math.PI * 2;
+      const r = rFn(t, a);
+      pos.push(P.x + r * (Math.cos(a) * N.x + Math.sin(a) * B.x), P.y + r * (Math.cos(a) * N.y + Math.sin(a) * B.y), P.z + r * (Math.cos(a) * N.z + Math.sin(a) * B.z));
+      uv.push(uvw.u0 + (j / rad) * uvw.du, uvw.v0 + (1 - t) * uvw.dv);
+    }
+  }
+  for (let i = 0; i < segs; i++) for (let j = 0; j < rad; j++) {
+    const a = i * (rad + 1) + j, b = a + rad + 1;
+    idx.push(a, b, a + 1, b, b + 1, a + 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(pos.length).fill(1), 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/* ---- fabric artwork (drawn per colour; u = around the body, v = neckline → hem) ---- */
+const rng = (seed) => { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); };
+const mixHex = (a, b, t) => `#${new THREE.Color(a).lerp(new THREE.Color(b), t).getHexString()}`;
+const lightness = (hex) => { const c = new THREE.Color(hex); return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b; };
+const GOLD = '#d9b26a', GOLD_D = '#9c7434';
+
+function drawFlower(g, x, y, r, petal, centre, leaf, rot) {
+  g.save(); g.translate(x, y); g.rotate(rot);
+  g.fillStyle = leaf;
+  for (const s of [-1, 1]) { g.beginPath(); g.ellipse(s * r * 1.25, r * 0.55, r * 0.75, r * 0.32, s * 0.6, 0, Math.PI * 2); g.fill(); }
+  g.fillStyle = petal;
+  for (let k = 0; k < 5; k++) { const a = (k / 5) * Math.PI * 2; g.beginPath(); g.ellipse(Math.cos(a) * r * 0.55, Math.sin(a) * r * 0.55, r * 0.5, r * 0.34, a, 0, Math.PI * 2); g.fill(); }
+  g.fillStyle = centre; g.beginPath(); g.arc(0, 0, r * 0.28, 0, Math.PI * 2); g.fill();
+  g.restore();
+}
+function drawPaisley(g, x, y, r, fill, line) {
+  g.save(); g.translate(x, y);
+  g.beginPath();
+  g.moveTo(0, -r); g.bezierCurveTo(r * 1.1, -r * 0.9, r * 1.0, r * 0.9, 0, r); g.bezierCurveTo(-r * 0.9, r * 0.9, -r * 0.7, -r * 0.1, -r * 0.1, -r * 0.2);
+  g.bezierCurveTo(r * 0.3, -r * 0.3, r * 0.1, -r * 0.8, 0, -r);
+  g.fillStyle = fill; g.fill(); g.lineWidth = Math.max(1, r * 0.12); g.strokeStyle = line; g.stroke();
+  g.fillStyle = line; g.beginPath(); g.arc(r * 0.15, r * 0.25, r * 0.22, 0, Math.PI * 2); g.fill();
+  g.restore();
+}
+// a horizontal embroidered band (zari work) between y0 and y1 across the whole width
+function drawBand(g, W, y0, y1, hex, kx, heavy) {
+  const h = y1 - y0;
+  g.fillStyle = mixHex(hex, '#000000', 0.18); g.fillRect(0, y0, W, h);
+  g.fillStyle = GOLD; g.fillRect(0, y0, W, Math.max(2, h * 0.06)); g.fillRect(0, y1 - Math.max(2, h * 0.06), W, Math.max(2, h * 0.06));
+  const step = h * 0.9 * kx;
+  for (let x = step / 2; x < W + step; x += step) {
+    g.save(); g.translate(x, y0 + h / 2); g.scale(kx, 1);
+    drawPaisley(g, 0, 0, h * 0.3, mixHex(GOLD, hex, 0.25), GOLD_D);
+    g.restore();
+    g.fillStyle = GOLD;
+    for (const yy of [y0 + h * 0.2, y1 - h * 0.2]) { g.beginPath(); g.ellipse(x + step / 2, yy, h * 0.05 * kx, h * 0.05, 0, 0, Math.PI * 2); g.fill(); }
+  }
+  if (heavy) {
+    g.globalAlpha = 0.5; g.fillStyle = GOLD;
+    for (let x = 0; x < W; x += step / 4) { g.beginPath(); g.ellipse(x, y0 + h * 0.5, h * 0.02 * kx, h * 0.02, 0, 0, Math.PI * 2); g.fill(); }
+    g.globalAlpha = 1;
+  }
+}
+
+function paintFabric(g, W, H, hex, pattern, geo) {
+  // geo: { circ, len } metres around / along, so motifs come out round on the 3D surface
+  const kx = geo.len / geo.circ;          // horizontal squash per pixel
+  const pxPerM = H / geo.len;
+  g.fillStyle = hex; g.fillRect(0, 0, W, H);
+  if (pattern === 'print') {
+    const light = lightness(hex) > 0.42;
+    const petalA = light ? mixHex(hex, '#7a1f3d', 0.55) : mixHex(hex, '#fff3df', 0.65);
+    const petalB = light ? mixHex(hex, '#1f4f7a', 0.5) : mixHex(hex, GOLD, 0.6);
+    const leaf = light ? mixHex(hex, '#2f6a45', 0.45) : mixHex(hex, '#9cc79a', 0.4);
+    const centre = light ? mixHex(hex, '#5a3a10', 0.5) : mixHex(hex, '#ffffff', 0.7);
+    const r = 0.028 * pxPerM, stepY = r * 3.6, stepX = stepY * kx;
+    const cols = Math.max(4, Math.round(W / stepX)), sx = W / cols;
+    const R = rng(11);
+    for (let row = -1; row * stepY < H + stepY; row++) for (let c = 0; c < cols; c++) {
+      const x = c * sx + (row % 2 ? sx / 2 : 0) + (R() - 0.5) * sx * 0.25, y = row * stepY + (R() - 0.5) * stepY * 0.25;
+      const big = R() > 0.35, rot = R() * Math.PI, col = R() > 0.5 ? petalA : petalB;
+      for (const wx of [x - W, x, x + W]) {
+        g.save(); g.translate(wx, y); g.scale(kx, 1);
+        drawFlower(g, 0, 0, big ? r : r * 0.55, col, centre, leaf, rot);
+        g.restore();
+      }
+    }
+  }
+  if (pattern === 'embroidery') {
+    // scattered buti
+    const R = rng(5), r = 0.012 * pxPerM, stepY = r * 9, stepX = stepY * kx;
+    const cols = Math.max(4, Math.round(W / stepX)), sx = W / cols;
+    for (let row = 0; row * stepY < H; row++) for (let c = 0; c < cols; c++) {
+      const x = c * sx + (row % 2 ? sx / 2 : 0), y = row * stepY + stepY / 2;
+      for (const wx of [x - W, x, x + W]) {
+        g.save(); g.translate(wx, y); g.scale(kx, 1);
+        g.fillStyle = GOLD; g.beginPath(); g.arc(0, 0, r * (0.6 + R() * 0.3), 0, Math.PI * 2); g.fill();
+        g.fillStyle = mixHex(GOLD, hex, 0.5); for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; g.beginPath(); g.arc(Math.cos(a) * r * 1.3, Math.sin(a) * r * 1.3, r * 0.35, 0, Math.PI * 2); g.fill(); }
+        g.restore();
+      }
+    }
+    // front gala (neckline panel) at u = 0 (front centre), wrapped
+    const galaH = 0.2 * pxPerM, galaW = 0.16 * pxPerM * kx;
+    for (const cx of [0, W]) {
+      g.save(); g.beginPath(); g.moveTo(cx - galaW, 0); g.lineTo(cx + galaW, 0); g.lineTo(cx, galaH); g.closePath(); g.clip();
+      drawBand(g, W, 0, galaH, hex, kx, true);
+      g.restore();
+    }
+  }
+  if (pattern !== 'plain') {
+    // neckline and hem borders
+    drawBand(g, W, 0, Math.max(6, 0.045 * pxPerM), hex, kx, false);
+    const hem = (pattern === 'embroidery' ? 0.16 : 0.07) * pxPerM;
+    drawBand(g, W, H - hem, H, hex, kx, pattern === 'embroidery');
+  }
+}
+
+function paintDupatta(g, W, H, hex) {
+  g.fillStyle = hex; g.fillRect(0, 0, W, H);
+  const b = H * 0.14;
+  for (const y0 of [0, H - b]) {
+    g.fillStyle = GOLD; g.fillRect(0, y0 + b * 0.15, W, b * 0.12); g.fillRect(0, y0 + b * 0.73, W, b * 0.12);
+    for (let x = 6; x < W; x += 14) { g.beginPath(); g.arc(x, y0 + b * 0.5, b * 0.14, 0, Math.PI * 2); g.fill(); }
+  }
+  g.globalAlpha = 0.55;
+  const R = rng(3);
+  for (let i = 0; i < 260; i++) { g.beginPath(); g.arc(R() * W, b + R() * (H - 2 * b), 1.6, 0, Math.PI * 2); g.fill(); }
+  g.globalAlpha = 1;
+}
+
 class Garment {
   constructor(parent, weave) {
     this.M = 144; this.R = 100;
@@ -120,21 +279,38 @@ class Garment {
 
     const bumpTex = weave.clone(); bumpTex.repeat.set(40, 26); bumpTex.needsUpdate = true;
     this.plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 100);
+    // fabric artwork + cut-outs (side slits, lehenga midriff)
+    this.artCv = document.createElement('canvas'); this.artCv.width = this.artCv.height = 1024;
+    this.art = new THREE.CanvasTexture(this.artCv); this.art.colorSpace = THREE.SRGBColorSpace; this.art.wrapS = THREE.RepeatWrapping; this.art.anisotropy = 4;
+    this.cutCv = document.createElement('canvas'); this.cutCv.width = 512; this.cutCv.height = 256;
+    this.cut = new THREE.CanvasTexture(this.cutCv); this.cut.wrapS = THREE.RepeatWrapping;
     this.mat = new THREE.MeshPhysicalMaterial({
       side: THREE.DoubleSide, vertexColors: true, clippingPlanes: [this.plane], clipShadows: true,
       bumpMap: bumpTex, envMapIntensity: 0.4, sheenColor: new THREE.Color(1, 1, 1),
+    });
+    this.trouserMat = new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, clippingPlanes: [this.plane], clipShadows: true, bumpMap: bumpTex, envMapIntensity: 0.4 });
+    this.dupCv = document.createElement('canvas'); this.dupCv.width = 512; this.dupCv.height = 128;
+    this.dupTex = new THREE.CanvasTexture(this.dupCv); this.dupTex.colorSpace = THREE.SRGBColorSpace; this.dupTex.wrapS = THREE.RepeatWrapping; this.dupTex.repeat.set(3, 1);
+    this.dupMat = new THREE.MeshPhysicalMaterial({
+      side: THREE.DoubleSide, clippingPlanes: [this.plane], map: this.dupTex, transparent: true, opacity: 0.78, depthWrite: false,
+      roughness: 0.5, sheen: 1, sheenRoughness: 0.35, envMapIntensity: 0.5,
     });
     this.mesh = new THREE.Mesh(this.geo, this.mat);
     this.mesh.castShadow = true; this.mesh.receiveShadow = true; this.mesh.frustumCulled = false;
     this.group = new THREE.Group(); this.group.add(this.mesh); this.group.visible = false;
     parent.add(this.group);
 
-    this.look = null; this.p = null; this.straps = null;
-    this.ease = 0.013; this.easeT = 0.013; this.strapEase = 0.013;
+    this.look = null; this.p = null; this.extras = null;
+    this.ease = 0.013; this.easeT = 0.013; this.extrasEase = 0.013;
     this.color = new THREE.Color(); this.colorT = new THREE.Color();
-    this.heatAmt = 0;
+    this.heatAmt = 0; this.painted = '';
     this.tmp = { x: 0, y: 0, z: 0 };
   }
+  get extTop() { return topMax(this.p) + (this.p.straps ? 0.2 : 0); }
+  get extBottom() { return this.p.trousers ? Math.min(this.p.bottom, LEG_BOTTOM) : this.p.bottom; }
+  // metres around / along the main body, used to keep prints round
+  geoSize() { const p = this.p; return { circ: 2 * Math.PI * 0.3 * 0.87, len: topMax(p) - p.bottom }; }
+
   setLook(look) {
     this.look = look;
     this.plane.constant = 100;
@@ -142,53 +318,155 @@ class Garment {
     this.group.visible = true;
     this.p = { ...STYLES[look.style] };
     const f = FABRICS[look.fabric];
-    Object.assign(this.mat, { roughness: f.roughness, sheen: f.sheen, sheenRoughness: f.sheenRoughness, bumpScale: f.bump });
+    for (const m of [this.mat, this.trouserMat]) Object.assign(m, { roughness: f.roughness, sheen: f.sheen, sheenRoughness: f.sheenRoughness, bumpScale: f.bump });
     this.colorT.set(COLORS[look.color].hex); this.color.copy(this.colorT);
     this.ease = this.easeT = SIZES[look.size].ease;
-    this.buildStraps();
+    this.paint(true);
+    this.paintCuts();
+    this.buildExtras();
   }
   retarget(look) {
     this.look = look;
     this.colorT.set(COLORS[look.color].hex);
     this.easeT = SIZES[look.size].ease;
+    this.paint(false);
   }
-  buildStraps() {
-    if (this.straps) { this.straps.children.forEach((m) => m.geometry.dispose()); this.group.remove(this.straps); this.straps = null; }
-    if (!this.p.straps) return;
-    this.strapEase = this.ease;
-    this.straps = new THREE.Group();
-    const o = {};
-    const path = [[0.42, this.p.top - 0.004], [0.5, 0.85], [0.78, 0.93], [Math.PI / 2, 0.962], [Math.PI - 0.78, 0.93], [Math.PI - 0.5, 0.85], [Math.PI - 0.42, this.p.top - 0.004]];
-    for (const sgn of [1, -1]) {
-      const pts = path.map(([th, y]) => { surface(sgn * th, y, this.ease + 0.007, o); return new THREE.Vector3(o.x, o.y, o.z); });
-      const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 48, 0.0055, 6, false);
-      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 3).fill(1), 3));
-      const m = new THREE.Mesh(g, this.mat); m.castShadow = true;
-      this.straps.add(m);
+  // fabric artwork depends on colour + pattern; plain fabrics just use the material colour
+  paint(force) {
+    const { look, p } = this;
+    const pattern = look.pattern || 'plain';
+    const key = `${look.style}|${pattern}|${look.color}`;
+    if (!force && key === this.painted) return;
+    this.painted = key;
+    const hex = COLORS[look.color].hex;
+    const useMap = pattern !== 'plain';
+    if (useMap) { paintFabric(this.artCv.getContext('2d'), 1024, 1024, hex, pattern, this.geoSize()); this.art.needsUpdate = true; }
+    if (!!this.mat.map !== useMap) { this.mat.map = useMap ? this.art : null; this.mat.needsUpdate = true; }
+    this.usesMap = useMap;
+    if (p.dupatta) { paintDupatta(this.dupCv.getContext('2d'), 512, 128, mixHex(hex, '#ffffff', lightness(hex) > 0.5 ? 0.1 : 0.22)); this.dupTex.needsUpdate = true; }
+  }
+  paintCuts() {
+    const p = this.p, W = this.cutCv.width, H = this.cutCv.height, g = this.cutCv.getContext('2d');
+    const need = p.slits != null || p.midriff;
+    if (!need) { if (this.mat.alphaMap) { this.mat.alphaMap = null; this.mat.alphaTest = 0; this.mat.needsUpdate = true; } return; }
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.fillStyle = '#000';
+    for (let x = 0; x < W; x++) {
+      const th = ((x + 0.5) / W) * Math.PI * 2;
+      const top = topAt(p, th);
+      const vOf = (y) => (y - p.bottom) / (top - p.bottom); // 0 = hem, 1 = neckline
+      const rowOf = (y) => (1 - vOf(y)) * H;
+      if (p.slits != null && (Math.abs(th - Math.PI / 2) < 0.028 || Math.abs(th - Math.PI * 1.5) < 0.028)) g.fillRect(x, rowOf(p.slits), 1, H);
+      if (p.midriff) { const r0 = rowOf(p.midriff[1]), r1 = rowOf(p.midriff[0]); g.fillRect(x, r0, 1, r1 - r0); }
     }
-    this.group.add(this.straps);
+    this.cut.needsUpdate = true;
+    if (this.mat.alphaMap !== this.cut) { this.mat.alphaMap = this.cut; this.mat.alphaTest = 0.5; this.mat.needsUpdate = true; }
+  }
+
+  // radius of the worn garment at height y (falls back to the form), for draping the dupatta
+  wornR(y) {
+    const p = this.p;
+    if (y <= topMax(p) && y >= p.bottom) return garmentBaseR(p, this.ease, y);
+    return (y > -0.03 ? bodyR(y) : skirtBase(y)) + this.ease;
+  }
+  buildExtras() {
+    if (this.extras) { this.extras.children.forEach((m) => m.geometry.dispose()); this.group.remove(this.extras); this.extras = null; }
+    const p = this.p, ease = this.ease, o = {};
+    this.extrasEase = ease;
+    const ex = new THREE.Group();
+    const add = (geo, mat, shadow = true) => { const m = new THREE.Mesh(geo, mat); m.castShadow = shadow; m.receiveShadow = true; m.frustumCulled = false; ex.add(m); return m; };
+    const { circ, len } = this.geoSize();
+
+    if (p.straps) {
+      const path = [[0.42, p.top - 0.004], [0.5, 0.85], [0.78, 0.93], [Math.PI / 2, 0.962], [Math.PI - 0.78, 0.93], [Math.PI - 0.5, 0.85], [Math.PI - 0.42, p.top - 0.004]];
+      for (const sgn of [1, -1]) {
+        const pts = path.map(([th, y]) => { surface(sgn * th, y, ease + 0.007, o); return new THREE.Vector3(o.x, o.y, o.z); });
+        const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 48, p.trousers ? 0.012 : 0.0055, 6, false);
+        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 3).fill(1), 3));
+        add(g, this.mat);
+      }
+    }
+
+    if (p.sleeves) {
+      const s = p.sleeves, grow = 1 + ease * 6;
+      for (const sgn of [1, -1]) {
+        // starts inside the shoulder so the cap blends into the bodice instead of standing up like a pad
+        const y0 = 0.84;
+        const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(sgn * 0.33, y0, 0), new THREE.Vector3(sgn * 0.405, y0 - 0.07, 0.005), new THREE.Vector3(sgn * 0.445, y0 - s.len * 0.55, 0.02), new THREE.Vector3(sgn * 0.465, y0 - s.len, 0.035)]);
+        const rFn = (t) => lerp(s.r0, s.r1, Math.pow(t, 0.8)) * grow * (1 - 0.4 * Math.max(0, 1 - t * 5));
+        const du = (2 * Math.PI * (s.r0 + s.r1) / 2) / circ;
+        add(tubeGeometry(curve, rFn, 28, 24, { u0: 0.02, du, v0: 0, dv: s.len / len }), this.mat);
+      }
+    }
+
+    if (p.trousers) {
+      const T = TROUSERS[p.trousers.kind], grow = 1 + ease * 5;
+      for (const sgn of [1, -1]) {
+        const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(sgn * T.x0, 0.06, 0), new THREE.Vector3(sgn * lerp(T.x0, T.x1, 0.45), -0.45, 0.005), new THREE.Vector3(sgn * T.x1, LEG_BOTTOM, 0.012)]);
+        const rFn = (t, a) => {
+          let r = keyLerp(T.r, t) * grow;
+          const f = clamp((t - 0.35) / 0.65, 0, 1);
+          r += T.folds * f * (Math.sin(a * T.n + t * 18) * 0.7 + Math.sin(a * 3 + t * 9) * 0.3);
+          return r;
+        };
+        add(tubeGeometry(curve, rFn, 48, 40, { u0: 0, du: 1, v0: 0, dv: 1 }), this.trouserMat);
+      }
+    }
+
+    if (p.dupatta) {
+      // around the neck, across the chest in a soft U, ends falling down the back
+      const half = [[Math.PI - 0.55, -0.42], [Math.PI - 0.5, -0.05], [Math.PI - 0.42, 0.35], [Math.PI - 0.5, 0.72], [Math.PI / 2 + 0.5, 0.905], [Math.PI / 2, 0.955], [Math.PI / 2 - 0.5, 0.9], [0.66, 0.8], [0.32, 0.69], [0, 0.655]];
+      const path = [...half, ...half.slice(0, -1).reverse().map(([th, y]) => [-th, y])];
+      const pts = path.map(([th, y]) => { const r = this.wornR(y) + 0.022; shapeXZ(r * Math.sin(th), y, r * Math.cos(th), o); return new THREE.Vector3(o.x, o.y, o.z); });
+      const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+      const N = 160, Wd = 0.17;
+      const pos = [], uv = [], idx = [];
+      const P = new THREE.Vector3(), Tg = new THREE.Vector3(), Nn = new THREE.Vector3(), Wv = new THREE.Vector3();
+      for (let i = 0; i <= N; i++) {
+        const t = i / N;
+        curve.getPointAt(t, P); curve.getTangentAt(t, Tg);
+        Nn.set(P.x, Math.max(0, P.y - 0.82) * 2.2, P.z).normalize();
+        Wv.crossVectors(Tg, Nn).normalize();
+        const w = Wd * (1 + 0.35 * Math.pow(Math.abs(t - 0.5) * 2, 6)); // ends open up a little
+        for (const sgn of [-1, 1]) { pos.push(P.x + Wv.x * w * 0.5 * sgn + Nn.x * 0.006, P.y + Wv.y * w * 0.5 * sgn, P.z + Wv.z * w * 0.5 * sgn + Nn.z * 0.006); uv.push(t, sgn < 0 ? 0 : 1); }
+      }
+      for (let i = 0; i < N; i++) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx); g.computeVertexNormals();
+      add(g, this.dupMat, false);
+    }
+    this.extras = ex;
+    this.group.add(ex);
   }
   update(time, dt, heatT) {
     if (!this.group.visible || !this.look) return;
     const { M, R, pos, col, p, tmp } = this;
     this.ease = damp(this.ease, this.easeT, 6, dt);
-    if (this.straps && Math.abs(this.ease - this.strapEase) > 0.0015) this.buildStraps();
+    if (Math.abs(this.ease - this.extrasEase) > 0.0015) this.buildExtras();
     this.color.lerp(this.colorT, 1 - Math.exp(-5 * dt));
     this.heatAmt = damp(this.heatAmt, heatT, 6, dt);
-    this.mat.color.copy(this.color).lerp(WHITE, this.heatAmt * 0.9);
+    // printed fabrics carry their colour in the artwork; plain ones use the material colour
+    this.mat.color.copy(this.usesMap ? WHITE : this.color).lerp(WHITE, this.heatAmt * 0.9);
     this.mat.sheenColor.copy(this.color).lerp(WHITE, FABRICS[this.look.fabric].sheenMix);
+    // matching shalwar/pants are a shade deeper than the kameez; a jumpsuit is one colour
+    this.trouserMat.color.copy(this.color).multiplyScalar(p.bottom > -0.2 ? 1 : 0.92);
+    this.trouserMat.sheenColor.copy(this.mat.sheenColor);
+    this.dupMat.color.set(0xffffff);
 
     const ease = this.ease, heat = this.heatAmt;
+    const w = flareStart(p), Rw = bodyR(w);
     let k = 0;
     for (let i = 0; i <= M; i++) {
       const th = (i / M) * Math.PI * 2;
       const sn = Math.sin(th), cs = Math.cos(th);
+      const top = topAt(p, th);
       for (let j = 0; j < R; j++) {
         const v = j / (R - 1);
-        let y = lerp(p.top, p.bottom, v);
+        let y = lerp(top, p.bottom, v);
         const br = skirtBase(y);
-        const s = clamp((WAIST_Y - y) / (WAIST_Y - p.bottom), 0, 1);
-        let r = smax(br + ease, R_WAIST + ease + p.flare * Math.pow(s, p.flarePow), 0.035 * Math.min(1, s * 6));
+        const s = clamp((w - y) / (w - p.bottom), 0, 1);
+        let r = smax(br + ease, Rw + ease + p.flare * Math.pow(s, p.flarePow), 0.035 * Math.min(1, s * 6));
         const baseEase = r - br - 0.004 * bump(y, 0.62, 0.8) - 0.003 * bump(y, 0.1, 0.3);
         const fold = s > 0 ? Math.pow(s, 1.15) : 0;
         const d = p.pleat * fold * (Math.sin(th * p.pleats) * 0.65 + Math.sin(th * p.pleats * 0.47 + 1.3) * 0.35)
@@ -215,8 +493,11 @@ class Garment {
     fixSeam(this.geo, M, R);
   }
   radiusAt(y) {
-    if (!this.look || y > this.p.top + 0.01 || y < this.p.bottom - 0.01) return 0;
-    return garmentBaseR(this.p, this.ease, y) * (1 + this.p.pleat * 0.6);
+    if (!this.look) return 0;
+    const p = this.p;
+    if (y <= topMax(p) + 0.01 && y >= p.bottom - 0.01) return garmentBaseR(p, this.ease, y) * (1 + p.pleat * 0.6);
+    if (p.trousers && y < p.bottom && y >= LEG_BOTTOM - 0.01) return 0.29;
+    return 0;
   }
 }
 
@@ -391,7 +672,7 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
   let nxt = new Garment(rig, weave);
   let sweep = null;
   let pending;
-  const sameKind = (a, b) => a && b && a.style === b.style && a.fabric === b.fabric;
+  const sameKind = (a, b) => a && b && a.style === b.style && a.fabric === b.fabric && (a.pattern || 'plain') === (b.pattern || 'plain');
   function wear(look) { pending = look; if (!sweep) startSweep(); }
   function startSweep() {
     if (pending === undefined) return;
@@ -400,7 +681,7 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
     if (sameKind(look, cur.look)) { cur.retarget(look); return; }
     nxt.setLook(look);
     const tops = [], bots = [];
-    for (const g of [cur, nxt]) if (g.look) { tops.push(g.p.top + (g.p.straps ? 0.2 : 0)); bots.push(g.p.bottom); }
+    for (const g of [cur, nxt]) if (g.look) { tops.push(g.extTop); bots.push(g.extBottom); }
     sweep = { t: 0, from: Math.max(...tops) + 0.04, to: Math.min(...bots) - 0.06, dur: reduceMotion ? 0.5 : 1.35 };
     cur.plane.normal.set(0, -1, 0);
     nxt.plane.normal.set(0, 1, 0);
@@ -411,7 +692,7 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
   const LABEL_DEFS = {
     hero: [
       { fixed: [0.5, 0.74, 0], side: 'right', html: '<small>AI size match</small><b>M · EU 38</b><em>96% fit confidence</em>' },
-      { fixed: [0.6, -0.55, 0], side: 'right', html: '<small>Live fabric physics</small><b>Crushed velvet</b>' },
+      { fixed: [0.6, -0.55, 0], side: 'right', html: '<small>Live fabric physics</small><b>Embroidered chiffon</b>' },
     ],
     scan: [
       { y: MEAS_Y.bust, off: 0.008, side: 'right', html: '<small>Bust</small><b>86.4 cm</b>' },
@@ -437,8 +718,8 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
   }
 
   /* states */
-  const HERO_LOOK = { style: 'gown', fabric: 'velvet', color: 'bordeaux', size: 'M' };
-  const FIT_LOOK = { style: 'slip', fabric: 'silk', color: 'champagne', size: 'M' };
+  const HERO_LOOK = lookFor('anarkali');
+  const FIT_LOOK = lookFor('slip');
   const LABEL_ANGLE = 0.35;
   const STATES = {
     hero:   { x: 0.95, spin: 0.22, angle: null, scan: 0, labels: 'hero', look: () => HERO_LOOK, camZ: 5.6, camY: 0.2, lookY: -0.1, mLookY: -0.75 },
