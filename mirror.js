@@ -7,9 +7,9 @@
 //      and only after the person agreed to it on the start card).
 // Photos live in memory only and are wiped on Close.
 
-import { STYLES, COLORS, photoUrl, lookFor } from './catalog.js?v=17';
-import { getLandmarker } from './pose.js?v=17';
-import { TRYON_API, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=17';
+import { STYLES, COLORS, photoUrl, lookFor } from './catalog.js?v=18';
+import { getLandmarker } from './pose.js?v=18';
+import { TRYON_API, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=18';
 
 const $ = (s) => document.querySelector(s);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -131,7 +131,7 @@ export function initMirror({ onStage, toast }) {
     await video.play().catch(() => {});
     statusEl.textContent = 'Getting ready… a few seconds the first time.';
     try {
-      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=17')]);
+      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=18')]);
     } catch (e) {
       console.warn('Try-on could not load', e);
       statusEl.textContent = 'This could not load. Check your internet connection and try again.';
