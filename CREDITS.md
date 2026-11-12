@@ -1,6 +1,6 @@
 # Photo credits
 
-The model photos in the "Styles women love to wear" rail and the studio's "On a model" view are free-licence images from Unsplash (https://unsplash.com/license). They are loaded from Unsplash's image CDN, not stored in this repo. They are style examples for this concept site; the people shown have no connection to MIRRA.
+The model photos in the "Styles women love to wear" rail and the studio's "On a model" view are free-licence images from Unsplash (https://unsplash.com/license). They are loaded from Unsplash's image CDN, not stored in this repo. They are style examples for this concept site; the people shown have no connection to Miraal.
 
 | Outfit | Photo page |
 |---|---|

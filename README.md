@@ -1,4 +1,4 @@
-# Esha's work: MIRRA virtual try-on (concept site)
+# Esha's work: Miraal virtual try-on (concept site)
 
 A landing page and interactive demo for a virtual try-on app:
 
@@ -7,7 +7,7 @@ A landing page and interactive demo for a virtual try-on app:
 - Privacy: the camera picture is never uploaded or kept, and it is deleted as soon as the scan ends. Only the numbers stay, on your own device.
 - Optional local profile (stored in your browser only)
 
-"MIRRA" is a placeholder name.
+The product name is Miraal.
 
 ## Run locally
 
