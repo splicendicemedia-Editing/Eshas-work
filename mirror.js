@@ -7,9 +7,9 @@
 //      and only after the person agreed to it on the start card).
 // Photos live in memory only and are wiped on Close.
 
-import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=20';
-import { getLandmarker } from './pose.js?v=20';
-import { TRYON_API, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=20';
+import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=21';
+import { getLandmarker } from './pose.js?v=21';
+import { TRYON_API, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=21';
 
 const $ = (s) => document.querySelector(s);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -25,7 +25,8 @@ const GOLD = '#d9b26a';
 const LEGS = { shalwar: [0.5, 0.44, 0.17], khuli: [0.5, 0.48, 0.42], kali: [0.62, 0.58, 0.2], slim: [0.38, 0.25, 0.17], pajama: [0.38, 0.25, 0.17],
   trouser: [0.4, 0.31, 0.27], jeans: [0.4, 0.3, 0.26], wide: [0.42, 0.44, 0.52] };
 const GATHERED = ['shalwar', 'kali']; // full legs gathered in at the ankle
-const HOLD = 22; // still frames before the photo is taken
+const COUNT_MS = 3000; // hold still this long (3, 2, 1) and the photo is taken
+const CAM_KEY = 'mirra.cam'; // 'user' (front camera) or 'environment' (back camera, someone else holds the phone)
 const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* blocked */ } } };
 // on a developer machine the server address can be given as ?tryon=<url> for testing
 const API = (location.hostname === 'localhost' && new URLSearchParams(location.search).get('tryon')) || TRYON_API;
@@ -37,10 +38,13 @@ export function initMirror({ onStage, toast }) {
   const rail = $('#mrRail'), colorsEl = $('#mrColors'), nameEl = $('#mrName'), subEl = $('#mrSub');
   const ring = $('#mrRing'), pctEl = $('#mrPct'), titleEl = $('#mrTitle'), textEl = $('#mrText'), skipBtn = $('#mrSkip');
   const realBtn = $('#mrReal'), leftEl = $('#mrLeft'), busy = $('#mrBusy'), sideEl = $('#mrSide');
+  const countEl = $('#mrCount'), flipBtn = $('#mrFlip'), camBtns = stage.querySelectorAll('[data-cam]');
 
   let stream = null, landmarker = null, G = null, raf = 0, lastT = -1, frameNo = 0, wakeLock = null;
   let look = lookFor('shalwar');
-  let step = 'front', hold = 0, prev = null, stepStart = 0, lum = 140, lastLm = null;
+  let step = 'front', prev = null, stepStart = 0, lum = 140, lastLm = null;
+  let holdStart = 0, badSince = 0, forced = false, lastFrameT = 0, shownCount = 0;
+  let camWant = 'user', rear = false, flipping = false, camRun = 0, session = 0, audio = null, badFrames = 0;
   let photos = { front: null, back: null };   // { canvas, lm, url }
   let side = 'front';
   let tab = 'women';                             // 'women' | 'men' | 'fabric'
@@ -88,7 +92,7 @@ export function initMirror({ onStage, toast }) {
   syncStitch();
   $('#mrFabUpload').addEventListener('click', () => $('#mrFabFile').click());
   $('#mrFabFile').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (f) loadCloth(URL.createObjectURL(f), true); e.target.value = ''; });
-  $('#mrFabUse').addEventListener('click', () => { const u = $('#mrFabUrl').value.trim(); if (/^https?:\/\//i.test(u)) loadCloth(u, false); else toast('Paste a picture link that starts with https://'); });
+  $('#mrFabUse').addEventListener('click', () => { const u = $('#mrFabUrl').value.trim(); if (/^https:\/\//i.test(u)) loadCloth(u, false); else toast('Paste a picture link that starts with https://'); });
   function loadCloth(src, isBlob) {
     const load = (url, cors) => new Promise((res, rej) => { const im = new Image(); if (cors) im.crossOrigin = 'anonymous'; im.onload = () => res(im); im.onerror = rej; im.src = url; });
     (async () => {
@@ -134,6 +138,7 @@ export function initMirror({ onStage, toast }) {
     if (startLook && !ALL[startLook.style]) startLook = null;
     if (startLook) look = { ...lookFor(startLook.style), ...startLook };
     setTab(startTab || (ALL[look.style].gender === 'men' ? 'men' : 'women'));
+    camWant = store.get(CAM_KEY) === 'environment' ? 'environment' : 'user'; syncCam();
     stage.classList.add('open'); document.body.classList.add('mirror-open');
     $('#mrPrivacy').innerHTML = API
       ? `<b>Your photo.</b> The preview is made on your device. If you tap <b>See it for real</b>, your photo is sent to our try-on partner (${TRYON_PARTNER}) to make the picture. Miraal does not keep it.`
@@ -151,6 +156,7 @@ export function initMirror({ onStage, toast }) {
   function wipe() {
     for (const p of Object.values(photos)) if (p) { p.canvas.width = p.canvas.height = 0; if (p.url) URL.revokeObjectURL(p.url); }
     photos = { front: null, back: null }; results.clear(); stitched.clear(); side = 'front';
+    session++; busy.hidden = true; // a picture still being made belongs to the old photos
     img.removeAttribute('src'); dctx.setTransform(1, 0, 0, 1, 0, 0); dctx.clearRect(0, 0, drawCv.width, drawCv.height);
   }
   document.querySelectorAll('[data-open-mirror]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); open(null, b.dataset.openMirror || null); }));
@@ -158,7 +164,14 @@ export function initMirror({ onStage, toast }) {
   $('#mrCancel').addEventListener('click', close);
   $('#mrGo').addEventListener('click', () => { unlockSpeech(); startCamera(); });
   $('#mrRetake').addEventListener('click', () => { wipe(); startCamera(); });
-  $('#mrShoot').addEventListener('click', () => { if (stream && lastLm) capture(lastLm); else if (stream) toast('Step into the picture first'); });
+  // the button starts the same 3-second countdown, so the tap does not shake the picture
+  $('#mrShoot').addEventListener('click', () => { if (!stream) return; if (!lastLm) { toast('Step into the picture first'); return; } forced = true; holdStart = performance.now(); badSince = 0; });
+  flipBtn.addEventListener('click', flip);
+  camBtns.forEach((b) => b.addEventListener('click', () => { camWant = b.dataset.cam; store.set(CAM_KEY, camWant); syncCam(); }));
+  function syncCam() {
+    camBtns.forEach((b) => b.classList.toggle('on', b.dataset.cam === camWant));
+    $('#mrTipPhone').textContent = camWant === 'environment' ? 'Ask someone to hold the phone upright and stand back, so it sees you from head to knees' : 'Stand your phone up and step back, so it sees you from head to knees';
+  }
   skipBtn.addEventListener('click', () => finishCapture());
   realBtn.addEventListener('click', makeReal);
   $('#mrSave').addEventListener('click', savePicture);
@@ -168,65 +181,127 @@ export function initMirror({ onStage, toast }) {
   addEventListener('resize', () => { if (stage.classList.contains('open') && stage.dataset.mode === 'looks') show(); });
 
   /* ---------- voice (helps when the phone is 2 m away) ---------- */
-  function unlockSpeech() { try { if ('speechSynthesis' in window) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); voiceOk = true; } } catch { /* ignore */ } }
+  function unlockSpeech() {
+    try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch { audio = null; }
+    try { if ('speechSynthesis' in window) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); voiceOk = true; } } catch { /* ignore */ }
+  }
+  // a short beep for each second of the countdown (the person may have their back to the screen)
+  function beep(last) {
+    if (!audio) return;
+    try {
+      const t = audio.currentTime, o = audio.createOscillator(), g = audio.createGain();
+      o.frequency.value = last ? 1320 : 880;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
+      o.connect(g); g.connect(audio.destination); o.start(t); o.stop(t + 0.2);
+    } catch { /* ignore */ }
+  }
   function speak(text, force) {
     if (!voiceOk || !text) return;
     const now = performance.now();
     if (!force && (text === lastSaid ? now - lastSpoken < 7000 : now - lastSpoken < 3500)) return;
     lastSpoken = now; lastSaid = text;
-    try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = 'en-US'; speechSynthesis.speak(u); } catch { /* ignore */ }
+    // cancelling when nothing is playing makes some phones drop the next sentence
+    try { if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = 'en-US'; speechSynthesis.speak(u); } catch { /* ignore */ }
   }
 
   /* ---------- camera + guided capture ---------- */
   async function startCamera() {
+    if (stream) stopCamera(); // a second tap must not leave the first camera running
     setMode('start');
     if (!navigator.mediaDevices?.getUserMedia) { statusEl.textContent = 'The camera is not available here. Open this page in Chrome or Safari.'; return; }
     statusEl.textContent = 'Waiting for the camera…';
+    const run = ++camRun;
+    let s;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+      s = await openStream();
     } catch (e) {
+      if (run !== camRun) return;
       stream = null;
       statusEl.textContent = e && e.name === 'NotAllowedError' ? 'Camera permission was declined. Allow the camera in your browser settings and try again.' : 'No camera found. Close other apps using the camera and try again.';
       return;
     }
+    // closed while the phone was still asking for permission: switch the camera straight off again
+    if (run !== camRun) { s.getTracks().forEach((t) => t.stop()); return; }
+    stream = s;
     video.srcObject = stream;
     await video.play().catch(() => {});
+    navigator.mediaDevices.enumerateDevices?.().then((d) => { flipBtn.hidden = d.filter((x) => x.kind === 'videoinput').length < 2; }).catch(() => {});
     statusEl.textContent = 'Getting ready… a few seconds the first time.';
     try {
-      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=20')]);
+      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=21')]);
     } catch (e) {
       console.warn('Try-on could not load', e);
-      statusEl.textContent = 'This could not load. Check your internet connection and try again.';
+      if (run !== camRun) return;
       stopCamera();
+      statusEl.textContent = 'This could not load. Check your internet connection and try again.';
       return;
     }
-    if (!stream) return;
+    if (run !== camRun || !stream) return;
     try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; }
     setMode('capture');
     enterStep('front');
     lastT = -1; frameNo = 0;
     loop();
   }
+  async function openStream() {
+    const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: camWant, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    const track = s.getVideoTracks()[0], set = track?.getSettings?.() || {};
+    // the selfie camera is shown like a mirror; the back camera is shown as it is
+    rear = set.facingMode ? set.facingMode === 'environment' : /back|rear|environment/i.test(track?.label || '');
+    stage.classList.toggle('rear', rear);
+    return s;
+  }
+  async function flip() {
+    if (!stream || flipping) return;
+    flipping = true;
+    const run = camRun;
+    cancelAnimationFrame(raf);
+    stream.getTracks().forEach((t) => t.stop()); // a phone cannot run both cameras at once
+    const before = camWant;
+    camWant = before === 'environment' ? 'user' : 'environment';
+    let s = null;
+    try { s = await openStream(); }
+    catch { camWant = before; try { s = await openStream(); } catch { s = null; } }
+    flipping = false;
+    if (run !== camRun) { s?.getTracks().forEach((t) => t.stop()); return; }
+    if (!s) { stopCamera(); setMode('start'); statusEl.textContent = 'The camera could not be switched. Tap Agree & start camera to try again.'; return; }
+    if (camWant === before) toast('The other camera could not be opened');
+    store.set(CAM_KEY, camWant); syncCam();
+    stream = s; video.srcObject = s;
+    await video.play().catch(() => {});
+    if (run !== camRun) return;
+    resetHold(); prev = null; lastT = -1; stepStart = performance.now();
+    describeStep();
+    loop();
+  }
   function stopCamera() {
+    camRun++;
     cancelAnimationFrame(raf);
     if (stream) stream.getTracks().forEach((t) => t.stop());
-    stream = null; lastLm = null;
+    stream = null; lastLm = null; badFrames = 0;
     video.pause(); video.srcObject = null;
     lctx.clearRect(0, 0, 16, 16);
     wakeLock?.release?.().catch?.(() => {}); wakeLock = null;
     hintEl.textContent = ''; hintEl.classList.remove('show');
+    resetHold();
+  }
+  function resetHold() { holdStart = 0; badSince = 0; forced = false; shownCount = 0; countEl.textContent = ''; pctEl.textContent = ''; setRing(0); }
+  function describeStep() {
+    nameEl.textContent = step === 'front' ? 'Photo 1 of 2 · Front' : 'Photo 2 of 2 · Back';
+    subEl.textContent = 'Hold still for 3 seconds and the photo is taken by itself';
+    titleEl.textContent = step === 'front' ? 'Face the camera' : 'Now turn around';
+    textEl.textContent = rear
+      ? (step === 'front' ? 'Hold the phone upright and steady. Keep them in the picture from head to knees.' : 'Their back to the camera now. Keep the phone steady.')
+      : (step === 'front' ? 'Stand back so we see you from head to knees. Arms a little away from your body.' : 'Back to the camera. Stand straight and hold still.');
   }
   function enterStep(s) {
-    step = s; hold = 0; prev = null; stepStart = performance.now();
-    nameEl.textContent = s === 'front' ? 'Photo 1 of 2 · Front' : 'Photo 2 of 2 · Back';
-    subEl.textContent = 'The photo is taken by itself when you hold still';
-    titleEl.textContent = s === 'front' ? 'Face the camera' : 'Now turn around';
-    textEl.textContent = s === 'front' ? 'Stand back so we see you from head to knees. Arms a little away from your body.' : 'Back to the camera. Stand straight and hold still.';
+    step = s; prev = null; stepStart = performance.now();
+    resetHold();
+    describeStep();
     skipBtn.hidden = s === 'front';
-    setRing(0);
-    speak(s === 'front' ? 'Face the camera, step back until I can see you from head to knees, and hold still.' : 'Great. Now turn around, so your back faces the camera, and hold still.', true);
+    speak(s === 'front' ? 'Face the camera, step back until I can see you from head to knees, and hold still for three seconds.' : 'Great. Now turn around, so your back faces the camera, and hold still.', true);
   }
-  function setRing(p) { ring.style.setProperty('--p', Math.round(clamp(p, 0, 1) * 100)); pctEl.textContent = p > 0 ? `${Math.round(clamp(p, 0, 1) * 100)}%` : ''; }
+  function setRing(p) { ring.style.setProperty('--p', Math.round(clamp(p, 0, 1) * 100)); }
   function setHint(t) { hintEl.textContent = t; hintEl.classList.toggle('show', !!t); if (t) speak(t); }
 
   function loop() {
@@ -235,18 +310,41 @@ export function initMirror({ onStage, toast }) {
     if (video.readyState < 2 || video.currentTime === lastT) return;
     lastT = video.currentTime;
     let res;
-    try { res = landmarker.detectForVideo(video, performance.now()); } catch (e) { console.warn(e); return; }
+    try { res = landmarker.detectForVideo(video, performance.now()); }
+    catch (e) {
+      console.warn(e);
+      // the tracker failing on every picture would otherwise leave the person waiting forever
+      if (++badFrames > 40) { stopCamera(); setMode('start'); statusEl.textContent = 'The camera guide stopped working. Tap Agree & start camera to try again, or open this page in Chrome or Safari.'; }
+      return;
+    }
+    badFrames = 0;
     const lm = res.landmarks?.[0];
     res.close?.();
     frameNo++;
     if (frameNo % 20 === 1) sampleLight();
     lastLm = lm || null;
-    const c = check(lm);
-    if (c.ok) hold++; else hold = Math.max(0, hold - 2);
-    setRing(hold / HOLD);
-    setHint(c.ok ? '' : c.hint);
-    titleEl.textContent = c.ok ? 'Hold still…' : step === 'front' ? 'Face the camera' : 'Now turn around';
-    if (hold >= HOLD) capture(lm);
+    const now = performance.now();
+    const dt = lastFrameT ? Math.min(0.5, (now - lastFrameT) / 1000) : 0.033;
+    lastFrameT = now;
+    const c = check(lm, dt);
+    // the countdown runs while the picture is good; a brief wobble does not restart it
+    if (forced) {
+      if (lm) badSince = 0;
+      else { if (!badSince) badSince = now; if (now - badSince > 1500) { resetHold(); toast('Step into the picture first'); } }
+    } else if (c.ok) {
+      if (!holdStart) { holdStart = now; speak('Hold still'); }
+      badSince = 0;
+    } else if (holdStart) {
+      if (!badSince) badSince = now;
+      if (now - badSince > 400) resetHold();
+    }
+    const gone = holdStart ? now - holdStart : 0;
+    const n = holdStart ? clamp(Math.ceil((COUNT_MS - gone) / 1000), 1, Math.ceil(COUNT_MS / 1000)) : 0;
+    if (n !== shownCount) { shownCount = n; countEl.textContent = n || ''; pctEl.textContent = n || ''; if (n) beep(n === 1); }
+    setRing(gone / COUNT_MS);
+    setHint(holdStart ? '' : c.hint);
+    titleEl.textContent = holdStart ? 'Hold still…' : step === 'front' ? 'Face the camera' : 'Now turn around';
+    if (holdStart && gone >= COUNT_MS && lm && (forced || c.ok)) capture(lm);
   }
   function sampleLight() {
     try {
@@ -258,7 +356,7 @@ export function initMirror({ onStage, toast }) {
   }
 
   // is this frame good enough for a clear try-on photo?
-  function check(lm) {
+  function check(lm, dt = 0.033) {
     if (!lm) { prev = null; return { ok: false, hint: 'Step into the picture' }; }
     const vis = (i) => lm[i].visibility > 0.5;
     const inside = (i) => lm[i].x > 0.02 && lm[i].x < 0.98 && lm[i].y > 0.01 && lm[i].y < 0.99;
@@ -273,12 +371,15 @@ export function initMirror({ onStage, toast }) {
     if (lum <= 45) return { ok: false, hint: 'Too dark. Switch on a light in front of you' };
     const swPx = Math.abs(lm[11].x - lm[12].x) * vw, torsoPx = Math.max(1, (hy - sy) * vh);
     const squareOn = swPx / torsoPx > 0.5;
-    const facing = lm[11].x > lm[12].x ? 'front' : 'back';
+    // from behind, the shoulders swap sides or the face is hidden
+    const faceVis = Math.max(lm[0].visibility, lm[2].visibility, lm[5].visibility);
+    const facing = lm[11].x > lm[12].x && faceVis > 0.5 ? 'front' : 'back';
     if (!squareOn || facing !== step) return { ok: false, hint: step === 'front' ? 'Turn to face the camera' : 'Turn around so your back faces the camera' };
     const cx = (lm[11].x + lm[12].x + lm[23].x + lm[24].x) / 4, cy = (sy + hy) / 2;
     const moved = prev ? Math.hypot(cx - prev.x, cy - prev.y) : 1;
     prev = { x: cx, y: cy };
-    if (moved > 0.006) return { ok: false, hint: performance.now() - stepStart > 2500 ? 'Hold still' : '' };
+    // allowed drift per frame: more on slow phones (fewer frames a second) and when the phone is hand-held
+    if (moved > (rear ? 2.2 : 1) * Math.max(0.006, 0.18 * dt)) return { ok: false, hint: performance.now() - stepStart > 2500 ? (rear ? 'Hold the phone steady' : 'Hold still') : '' };
     return { ok: true };
   }
 
@@ -287,7 +388,7 @@ export function initMirror({ onStage, toast }) {
     const vw = video.videoWidth, vh = video.videoHeight;
     const xs = [];
     for (let i = 0; i < 33; i++) if (lm[i].visibility > 0.5) xs.push(lm[i].x * vw);
-    if (xs.length < 4) return;
+    if (xs.length < 4) { resetHold(); toast('Step back so we can see you'); return; }
     const sy = (lm[11].y + lm[12].y) / 2 * vh, noseY = lm[0].y * vh;
     const top = Math.max(0, noseY - 1.5 * Math.max(10, sy - noseY));
     const ankles = [27, 28].filter((i) => lm[i].visibility > 0.5 && lm[i].y < 1).map((i) => lm[i].y * vh);
@@ -309,9 +410,13 @@ export function initMirror({ onStage, toast }) {
     if (!photos.front) return;
     stopCamera();
     side = 'front';
-    const list = Object.values(photos).filter(Boolean);
+    const list = Object.values(photos).filter(Boolean), mine = session;
     let pending = list.length;
-    for (const p of list) p.canvas.toBlob((b) => { p.url = b ? URL.createObjectURL(b) : null; if (--pending === 0) { setMode('looks'); show(); } }, 'image/jpeg', 0.92);
+    for (const p of list) p.canvas.toBlob((b) => {
+      if (mine !== session) return; // closed or retaken meanwhile
+      p.url = b ? URL.createObjectURL(b) : null;
+      if (--pending === 0) { setMode('looks'); show(); }
+    }, 'image/jpeg', 0.92);
     speak('Your photos are ready. Pick an outfit.', true);
   }
 
@@ -350,6 +455,7 @@ export function initMirror({ onStage, toast }) {
     const fab = custom();
     if (fab && !cloth) return;
     const key = resultKey(), sKey = fab ? `${cloth.id}|${stitch.wearer}|${stitch.neck}|${stitch.bottom}` : '';
+    const mine = session;
     const person = p.canvas.toDataURL('image/jpeg', 0.9);
     // fabric: the server first stitches a suit from the fabric (kept for the other photo), then puts it on the person
     const payload = fab
@@ -364,13 +470,21 @@ export function initMirror({ onStage, toast }) {
         body: JSON.stringify(payload),
       });
       const data = await r.json().catch(() => ({}));
+      // keep the stitched suit even when the try-on step failed, so a retry does not stitch (and cost) again
+      if (fab && data.garment && mine === session) stitched.set(sKey, data.garment);
+      const count = () => store.set(dayKey(), String(typeof data.left === 'number' ? DAILY_LIMIT - data.left : used() + 1));
       if (r.status === 429) { store.set(dayKey(), String(DAILY_LIMIT)); toast('You have used today’s real try-ons'); }
-      else if (!r.ok || !data.image) throw new Error(data.error || `Server said ${r.status}`);
-      else { results.set(key, data.image); if (fab && data.garment) stitched.set(sKey, data.garment); store.set(dayKey(), String(used() + 1)); }
+      else if (!r.ok || !data.image) { if (typeof data.left === 'number') count(); throw new Error(data.error || `Server said ${r.status}`); }
+      else {
+        count();
+        // photos retaken or the screen closed meanwhile: this picture is of the old photo, so drop it
+        if (mine === session) { results.set(key, data.image); if (fab && data.garment) stitched.set(sKey, data.garment); }
+      }
     } catch (e) {
       console.warn('AI try-on failed', e);
-      toast('Could not make the picture. Please try again.');
+      if (mine === session) toast('Could not make the picture. Please try again.');
     }
+    if (mine !== session) return;
     busy.hidden = true;
     if (stage.classList.contains('open') && stage.dataset.mode === 'looks') show();
   }
@@ -379,9 +493,22 @@ export function initMirror({ onStage, toast }) {
     const p = photos[side]; if (!p) return;
     const real = results.get(resultKey());
     const name = `miraal-${custom() ? 'my-fabric' : look.style}-${side}.jpg`;
-    const download = (blob) => { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000); };
+    const save = (blob) => { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 60000); };
+    // on an iPhone the share sheet (Save Image) is the way into the photo gallery; elsewhere a normal download
+    const download = async (blob) => {
+      const apple = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (apple) {
+        try {
+          const file = new File([blob], name, { type: 'image/jpeg' });
+          if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file] }); return; }
+        } catch (e) { if (e && e.name === 'AbortError') return; }
+      }
+      save(blob);
+    };
     if (real) {
-      try { download(await (await fetch(real)).blob()); } catch { window.open(real, '_blank', 'noopener'); }
+      // the AI picture lives on another site; if the browser may not read it directly, fetch it through the Miraal server
+      const grab = async (u) => { const r = await fetch(u); if (!r.ok) throw new Error(String(r.status)); return r.blob(); };
+      try { await download(await grab(real).catch(() => grab(`${API}?img=${encodeURIComponent(real)}`))); } catch { window.open(real, '_blank', 'noopener'); }
       return;
     }
     const out = document.createElement('canvas'); out.width = p.canvas.width; out.height = p.canvas.height;

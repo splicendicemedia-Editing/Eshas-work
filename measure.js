@@ -15,6 +15,8 @@ export const PRIOR = { shoulder: 0.238, bust: 0.514, waist: 0.406, hips: 0.56, i
 export const DEPTH_RATIO = { neck: 0.95, bust: 0.72, waist: 0.76, hips: 0.8, thigh: 1.0 };
 export const CIRC_FACTOR = { neck: 1.0, bust: 1.05, waist: 1.0, hips: 1.0, thigh: 1.0 };
 export const ROW_KEYS = ['neck', 'bust', 'waist', 'hips', 'thigh'];
+// highest believable value, as a multiple of the usual value for the person's height
+export const CAP = { neck: 1.3, bust: 1.7, waist: 1.7, hips: 1.7, thigh: 1.5, shoulder: 1.3, arm: 1.3, inseam: 1.3 };
 
 const ON = 0.5;
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -226,7 +228,15 @@ export function crotchY(mask, mw, mh, cxN, bottomN, hipN) {
 
 /** Combine captured front/back widths and side depths into circumferences. */
 export function combine({ height: H, front = {}, back = {}, side1 = {}, side2 = {}, liveW = {}, liveD = {}, liveLen = {}, final }) {
-  const clampP = (k, v) => (v == null ? null : Math.min(H * PRIOR[k] * 1.3, Math.max(H * PRIOR[k] * 0.7, v)));
+  // Sanity limits around what is usual for this height. Chest, waist and hips vary a lot between
+  // people of the same height, so their upper limit is wide; lengths vary much less.
+  const capped = [];
+  const clampP = (k, v) => {
+    if (v == null) return null;
+    const lo = H * PRIOR[k] * 0.7, hi = H * PRIOR[k] * (CAP[k] || 1.3);
+    if (v < lo || v > hi) capped.push(k);
+    return Math.min(hi, Math.max(lo, v));
+  };
   const out = { height: H };
   const state = { height: 'ok' };
   for (const k of ROW_KEYS) {
@@ -234,12 +244,12 @@ export function combine({ height: H, front = {}, back = {}, side1 = {}, side2 = 
     const dCap = avg(side1[k], side2[k]);
     const d = dCap ?? (final ? null : liveD[k]) ?? (w ? w * DEPTH_RATIO[k] : null);
     out[k] = w ? clampP(k, ellipse(w, d) * CIRC_FACTOR[k]) : (final ? H * PRIOR[k] : null);
-    state[k] = (front[k] || back[k]) && dCap ? 'ok' : w ? 'est' : '';
+    state[k] = capped.includes(k) ? 'est' : (front[k] || back[k]) && dCap ? 'ok' : w ? 'est' : '';
   }
   for (const k of ['shoulder', 'arm', 'inseam']) {
     const v = front[k] ?? back[k] ?? (final ? null : liveLen[k]);
     out[k] = v ? clampP(k, v) : (final ? H * PRIOR[k] : null);
-    state[k] = front[k] || back[k] ? 'ok' : v ? 'est' : '';
+    state[k] = capped.includes(k) ? 'est' : front[k] || back[k] ? 'ok' : v ? 'est' : '';
   }
-  return { out, state };
+  return { out, state, capped };
 }

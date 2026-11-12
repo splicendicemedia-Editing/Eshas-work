@@ -1,7 +1,7 @@
-import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=20';
-import { initCamera } from './camera.js?v=20';
-import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=20';
-import { initMirror } from './mirror.js?v=20';
+import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=21';
+import { initCamera } from './camera.js?v=21';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=21';
+import { initMirror } from './mirror.js?v=21';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -51,7 +51,7 @@ const studioLook = lookFor('shalwar');
 let collection = 'pk';
 let scene = null;
 
-import('./scene.js?v=20')
+import('./scene.js?v=21')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();
@@ -244,7 +244,9 @@ function updateMeasures() {
   if (measuredLive) return; // camera values win once captured
   animateTo(estimateFromHeight(getHeight()));
 }
-function setMeasured(values) {
+function setMeasured(values, measured = true) {
+  // a scan where chest and hips were never captured is only a guess from height: do not call it measured
+  if (!measured) { animateTo(values); return; }
   measuredLive = true;
   animateTo(values);
   setMySize(recommendSize(values)?.size);

@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20">
+  <link rel="stylesheet" href="styles.css?v=21">
   <script type="importmap">
     { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -398,6 +398,7 @@
         <button class="ss-icon" id="ssLiveToggle" type="button" aria-pressed="false" title="Show measurements">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 8h18v8H3zM7 8v3M11 8v4M15 8v3M19 8v4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
         </button>
+        <button class="ss-icon" id="ssFlip" type="button" title="Switch camera" aria-label="Switch between the front and back camera" hidden><svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.3 13a2.8 2.8 0 0 1 5-1.2M14.7 14a2.8 2.8 0 0 1-5 1.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M14.6 10.2v1.8h-1.8M9.4 16.8V15h1.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <button class="ss-icon on" id="ssVoice" type="button" aria-pressed="true" title="Voice guidance on/off">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         </button>
@@ -479,10 +480,14 @@
     </div>
     <div class="mr-shade" aria-hidden="true"></div>
     <div class="mr-flash" id="mrFlash" aria-hidden="true"></div>
+    <div class="mr-count" id="mrCount" aria-hidden="true"></div>
 
     <header class="mr-top">
       <div class="mr-title"><b id="mrName">Try it on me</b><span id="mrSub"></span></div>
-      <button class="btn btn-small ss-stop" id="mrClose" type="button">✕ Close</button>
+      <div class="mr-top-btns">
+        <button class="ss-icon" id="mrFlip" type="button" title="Switch camera" aria-label="Switch between the front and back camera" hidden><svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.3 13a2.8 2.8 0 0 1 5-1.2M14.7 14a2.8 2.8 0 0 1-5 1.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M14.6 10.2v1.8h-1.8M9.4 16.8V15h1.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button class="btn btn-small ss-stop" id="mrClose" type="button">✕ Close</button>
+      </div>
     </header>
 
     <!-- taking the photos -->
@@ -494,7 +499,7 @@
         <p id="mrText"></p>
       </div>
       <div class="mr-guide-btns">
-        <button class="ss-skip" id="mrShoot" type="button">Take it now</button>
+        <button class="ss-skip" id="mrShoot" type="button">Take photo</button>
         <button class="ss-skip" id="mrSkip" type="button" hidden>Skip back photo</button>
       </div>
     </div>
@@ -536,10 +541,14 @@
         <h3>Try it on yourself</h3>
         <p>We take two clear photos of you, then you see the outfits on your own picture.</p>
         <ul class="mr-tips">
-          <li>Stand your phone up and step back, so it sees you from head to knees</li>
-          <li>Hold still and the photo is taken by itself: front first, then turn around</li>
+          <li id="mrTipPhone">Stand your phone up and step back, so it sees you from head to knees</li>
+          <li>Hold still for 3 seconds and the photo is taken by itself: front first, then turn around</li>
           <li>Fitted clothes and good light give the best result</li>
         </ul>
+        <div class="cam-pick" role="group" aria-label="Which camera">
+          <button type="button" data-cam="user" class="on"><b>Front camera</b><span>I am on my own</span></button>
+          <button type="button" data-cam="environment"><b>Back camera</b><span>Someone holds the phone</span></button>
+        </div>
         <div class="privacy-line">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <p id="mrPrivacy"></p>
@@ -571,10 +580,14 @@
       </div>
 
       <p class="setup-label">2 · Get set up</p>
+      <div class="cam-pick" role="group" aria-label="Which camera">
+        <button type="button" data-cam="user" class="on"><b>Front camera</b><span>I am on my own</span></button>
+        <button type="button" data-cam="environment"><b>Back camera</b><span>Someone holds the phone</span></button>
+      </div>
       <ol class="setup-steps">
         <li>
           <svg viewBox="0 0 48 48" aria-hidden="true"><rect x="17" y="8" width="14" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 40h32" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M24 34v6" stroke="currentColor" stroke-width="2"/></svg>
-          <b>Stand your phone up</b><span>at waist height, against something steady</span>
+          <b id="setupPhoneB">Stand your phone up</b><span id="setupPhoneS">at waist height, against something steady</span>
         </li>
         <li>
           <svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="34" cy="10" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M34 14v14M34 28l-4 12M34 28l4 12M28 20h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M6 24h16M17 19l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -632,6 +645,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="main.js?v=20"></script>
+  <script type="module" src="main.js?v=21"></script>
 </body>
 </html>

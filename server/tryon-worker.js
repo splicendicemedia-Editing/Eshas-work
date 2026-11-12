@@ -113,8 +113,18 @@ export default {
       try { pic = await fetch(target.href, { headers: { Accept: 'image/*' }, redirect: 'follow' }); } catch { return json({ error: 'That picture could not be fetched' }, 502); }
       const type = pic.headers.get('Content-Type') || '';
       const size = parseInt(pic.headers.get('Content-Length') || '0', 10);
-      if (!pic.ok || !type.startsWith('image/') || size > MAX_PROXY_BYTES) return json({ error: 'That link is not a picture we can use' }, 400);
-      return new Response(pic.body, { status: 200, headers: { ...cors, 'Content-Type': type, 'Cache-Control': 'private, max-age=600' } });
+      if (!pic.ok || !pic.body || !type.startsWith('image/') || size > MAX_PROXY_BYTES) return json({ error: 'That link is not a picture we can use' }, 400);
+      // count the bytes while reading, because a site can leave out the size or give a wrong one
+      const reader = pic.body.getReader(), chunks = [];
+      let total = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_PROXY_BYTES) { await reader.cancel().catch(() => {}); return json({ error: 'That picture is too large' }, 400); }
+        chunks.push(value);
+      }
+      return new Response(new Blob(chunks), { status: 200, headers: { ...cors, 'Content-Type': type, 'Cache-Control': 'private, max-age=600' } });
     }
 
     if (!env.FAL_KEY) return json({ error: 'The try-on server has no fal.ai key yet' }, 503);
@@ -132,7 +142,7 @@ export default {
       onModel = host === 'images.unsplash.com';
     } else if (typeof fabric === 'string') {
       if (!fabric.startsWith('data:image/jpeg;base64,') || fabric.length > MAX_FABRIC_CHARS) return json({ error: 'The fabric picture is missing or too large' }, 400);
-      if (!stitch || !['men', 'women'].includes(stitch.wearer) || !NECK[stitch.neck] || !BOTTOM[stitch.bottom]) return json({ error: 'The stitching choices are missing' }, 400);
+      if (!stitch || !['men', 'women'].includes(stitch.wearer) || !Object.hasOwn(NECK, stitch.neck) || !Object.hasOwn(BOTTOM, stitch.bottom)) return json({ error: 'The stitching choices are missing' }, 400);
       wantsStitch = true;
     } else return json({ error: 'The outfit picture is missing' }, 400);
 
@@ -142,24 +152,34 @@ export default {
       key = await visitorKey(request);
       usedToday = parseInt((await env.LIMITS.get(key)) || '0', 10) || 0;
       if (usedToday >= limit) return json({ error: 'Daily limit reached', left: 0 }, 429);
+      // count this try-on before the slow AI work, so several requests sent at once cannot all slip under the limit
+      await env.LIMITS.put(key, String(usedToday + 1), { expirationTtl: 172800 });
     }
+    const left = key ? Math.max(0, limit - usedToday - 1) : null;
+    // nothing was made: give the try-on back
+    const refund = async () => { if (key) await env.LIMITS.put(key, String(usedToday), { expirationTtl: 172800 }).catch(() => {}); };
 
+    let stitchedUrl = null;
     try {
-      let stitchedUrl = null;
       if (wantsStitch) {
         const made = await fal(env, env.FAL_EDIT_MODEL || DEFAULT_EDIT_MODEL, { prompt: stitchPrompt(stitch), image_urls: [fabric], num_images: 1, output_format: 'jpeg', aspect_ratio: '2:3' });
         stitchedUrl = made.ok ? made.data?.images?.[0]?.url : null;
-        if (!stitchedUrl) return json({ error: 'The suit could not be stitched from this fabric picture', status: made.status }, 502);
+        if (!stitchedUrl) { await refund(); return json({ error: 'The suit could not be stitched from this fabric picture', status: made.status }, 502); }
       }
       const modelId = MODELS[env.FAL_MODEL] ? env.FAL_MODEL : DEFAULT_MODEL;
       const model = MODELS[modelId];
       const worn = await fal(env, modelId, model.input(person, stitchedUrl || garmentUrl.href, onModel));
       const image = worn.ok ? model.output(worn.data) : null;
-      if (!image) return json({ error: 'The try-on service could not make this picture', status: worn.status, garment: stitchedUrl }, 502);
-
-      if (key) await env.LIMITS.put(key, String(usedToday + 1), { expirationTtl: 172800 });
-      return json({ image, garment: stitchedUrl, left: key ? Math.max(0, limit - usedToday - 1) : null });
+      if (!image) {
+        // a suit that was stitched has been paid for, so it still counts; the site keeps it for the retry
+        if (stitchedUrl) return json({ error: 'The try-on service could not make this picture', status: worn.status, garment: stitchedUrl, left }, 502);
+        await refund();
+        return json({ error: 'The try-on service could not make this picture', status: worn.status }, 502);
+      }
+      return json({ image, garment: stitchedUrl, left });
     } catch {
+      if (stitchedUrl) return json({ error: 'The try-on service could not be reached', garment: stitchedUrl, left }, 502);
+      await refund();
       return json({ error: 'The try-on service could not be reached' }, 502);
     }
   },

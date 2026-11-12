@@ -7,8 +7,8 @@
 //   stored or uploaded; the camera is switched off and cleared when the scan ends.
 // - The measuring maths (incl. protection against background objects) lives in measure.js.
 
-import { measureFrame, combine, ROW_KEYS } from './measure.js?v=20';
-import { recommendSize } from './profile.js?v=20';
+import { measureFrame, combine, ROW_KEYS } from './measure.js?v=21';
+import { recommendSize } from './profile.js?v=21';
 
 const $ = (s) => document.querySelector(s);
 const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
@@ -33,6 +33,8 @@ const PHASES = [
   { id: 'done', title: 'All done', sub: '' },
 ];
 const STEP_NAME = { front: 'Front', side1: 'Side', back: 'Back', side2: 'Other side' };
+const CAM_KEY = 'mirra.cam'; // 'user' (front camera) or 'environment' (back camera, someone else holds the phone)
+const READY_SAY_REAR = 'Hold the phone upright at about waist height, two metres away, so I can see the whole person from head to toe.';
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
@@ -47,6 +49,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   const titleEl = $('#ssTitle'), subEl = $('#ssSub'), ring = $('#ssRing'), pctEl = $('#ssPct'), turnEl = $('#ssTurn');
   const skipBtn = $('#ssSkip'), voiceBtn = $('#ssVoice'), liveBtn = $('#ssLiveToggle'), liveList = $('#ssLiveList');
   const doneEl = $('#ssDone'), resultEl = $('#ssResult'), hintEl = $('#ssHint'), stepNo = $('#ssStepNo');
+  const flipBtn = $('#ssFlip'), camBtns = consent.querySelectorAll('[data-cam]');
 
   liveList.innerHTML = LIVE_KEYS.map(([k, l]) => `<div data-k="${k}"><dt>${l}</dt><dd><b>—</b><i></i></dd></div>`).join('');
 
@@ -61,6 +64,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   let captured = {}, liveW = {}, liveD = {}, liveLen = {}, lastResult = null;
   let voiceOn = true, lastSpoken = 0, lastHint = '', hintSince = 0;
   let unit = store.get('mirra.unit') === 'ft' ? 'ft' : 'cm';
+  let camWant = 'user', rear = false, flipping = false, camRun = 0, badFrames = 0;
 
   /* ---------- setup card: height (cm or ft/in) + consent ---------- */
   function setUnit(u) {
@@ -90,7 +94,15 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     e.currentTarget.textContent = list.hidden ? 'More' : 'Less';
   });
 
-  const openConsent = () => { setUnit(unit); hErr.textContent = ''; consent.classList.add('open'); };
+  function syncCam() {
+    camBtns.forEach((b) => b.classList.toggle('on', b.dataset.cam === camWant));
+    const back = camWant === 'environment';
+    $('#setupPhoneB').textContent = back ? 'Someone holds the phone' : 'Stand your phone up';
+    $('#setupPhoneS').textContent = back ? 'upright, at waist height, with the back camera facing you' : 'at waist height, against something steady';
+  }
+  camBtns.forEach((b) => b.addEventListener('click', () => { camWant = b.dataset.cam; store.set(CAM_KEY, camWant); syncCam(); }));
+  flipBtn.addEventListener('click', flip);
+  const openConsent = () => { setUnit(unit); camWant = store.get(CAM_KEY) === 'environment' ? 'environment' : 'user'; syncCam(); hErr.textContent = ''; consent.classList.add('open'); };
   const closeConsent = () => consent.classList.remove('open');
   camBtn?.addEventListener('click', openConsent);
   document.querySelectorAll('[data-open-camera]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); openConsent(); }));
@@ -119,7 +131,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   skipBtn.addEventListener('click', () => { capture(PHASES[pi], true); nextPhase(); });
   voiceBtn.addEventListener('click', () => {
     voiceOn = !voiceOn; voiceBtn.setAttribute('aria-pressed', voiceOn); voiceBtn.classList.toggle('on', voiceOn);
-    if (!voiceOn) speechSynthesis?.cancel();
+    if (!voiceOn) window.speechSynthesis?.cancel();
   });
   const setLive = (on) => { stage.classList.toggle('show-live', on); liveBtn.classList.toggle('on', on); liveBtn.setAttribute('aria-pressed', on); };
   liveBtn.addEventListener('click', () => setLive(!stage.classList.contains('show-live')));
@@ -133,7 +145,8 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     const now = performance.now();
     if (!force && now - lastSpoken < 6500) return;
     lastSpoken = now;
-    speechSynthesis.cancel();
+    // cancelling when nothing is playing makes some phones drop the next sentence
+    if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text); u.rate = 1.0; u.lang = 'en-US';
     speechSynthesis.speak(u);
   }
@@ -154,12 +167,13 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   }
   function closeStage() {
     stage.classList.remove('open'); document.body.classList.remove('scan-open');
-    speechSynthesis?.cancel();
+    window.speechSynthesis?.cancel(); // some in-app browsers have no speech at all
     onStage && onStage(false);
   }
 
   /* ---------- start ---------- */
   async function start() {
+    if (stream) stopCamera();
     resetScan();
     openStage();
     setGuide('Waiting for the camera…', 'Your phone is asking to use the camera — tap Allow.');
@@ -167,15 +181,21 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
       setGuide('Camera not available here', 'Open this page in Chrome or Safari (it needs a secure https link).');
       return;
     }
+    const run = ++camRun;
+    let s;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+      s = await openStream();
     } catch (e) {
+      if (run !== camRun) return;
       stream = null;
       const denied = e && e.name === 'NotAllowedError';
       setGuide(denied ? 'Camera permission was declined' : 'No camera found',
         denied ? 'Nothing was captured. Allow the camera in your browser settings and try again.' : 'Close other apps that are using the camera and try again.');
       return;
     }
+    // stopped while the phone was still asking for permission: switch the camera straight off again
+    if (run !== camRun) { s.getTracks().forEach((t) => t.stop()); return; }
+    stream = s;
     video.srcObject = stream;
     await video.play().catch(() => {});
     keepAwake();
@@ -184,11 +204,47 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     try { landmarker = landmarker || (await loadLandmarker()); }
     catch (e) {
       console.warn('Pose model failed to load', e);
-      setGuide('Body tracker could not load', 'Check your internet connection and try again.');
+      if (run !== camRun) return;
+      stopCamera(); // do not leave the camera on behind an error message
+      setGuide('Body tracker could not load', 'Check your internet connection, tap ✕ Stop, then try again.');
       return;
     }
-    if (!stream) return;
+    if (run !== camRun || !stream) return;
+    navigator.mediaDevices.enumerateDevices?.().then((d) => { flipBtn.hidden = d.filter((x) => x.kind === 'videoinput').length < 2; }).catch(() => {});
     enterPhase(0);
+    loop();
+  }
+
+  async function openStream() {
+    const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: camWant, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    const track = s.getVideoTracks()[0], set = track?.getSettings?.() || {};
+    // the selfie camera is shown like a mirror; the back camera is shown as it is
+    rear = set.facingMode ? set.facingMode === 'environment' : /back|rear|environment/i.test(track?.label || '');
+    stage.classList.toggle('rear', rear);
+    return s;
+  }
+  async function flip() {
+    if (!stream || flipping || !landmarker) return;
+    flipping = true;
+    const run = camRun;
+    cancelAnimationFrame(raf);
+    stream.getTracks().forEach((t) => t.stop()); // a phone cannot run both cameras at once
+    const before = camWant;
+    camWant = before === 'environment' ? 'user' : 'environment';
+    let s = null;
+    try { s = await openStream(); }
+    catch { camWant = before; try { s = await openStream(); } catch { s = null; } }
+    flipping = false;
+    if (run !== camRun) { s?.getTracks().forEach((t) => t.stop()); return; }
+    if (!s) { stopCamera(); setGuide('The camera could not be switched', 'Tap ✕ Stop, then start again.'); return; }
+    if (camWant === before) toast('The other camera could not be opened');
+    store.set(CAM_KEY, camWant);
+    stream = s; video.srcObject = s;
+    await video.play().catch(() => {});
+    if (run !== camRun) return;
+    // the step being measured starts again with the new camera; finished steps are kept
+    hold = 0; samples = []; prevHip = null; stillCount = 0; lastT = -1; phaseStart = performance.now();
+    setRing(0);
     loop();
   }
 
@@ -220,7 +276,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     setGuide(ph.title, ph.sub);
     setRing(0);
     skipBtn.hidden = true;
-    speak(ph.say, true);
+    speak(ph.id === 'ready' && rear ? READY_SAY_REAR : ph.say, true);
   }
   function nextPhase() {
     if (pi + 1 >= PHASES.length - 1) return finish();
@@ -244,7 +300,14 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     if (video.readyState < 2 || video.currentTime === lastT) return;
     lastT = video.currentTime;
     let res;
-    try { res = landmarker.detectForVideo(video, performance.now()); } catch (e) { console.warn(e); return; }
+    try { res = landmarker.detectForVideo(video, performance.now()); }
+    catch (e) {
+      console.warn(e);
+      // the tracker failing on every picture would otherwise leave the person waiting forever
+      if (++badFrames > 40) { stopCamera(); setGuide('The body tracker stopped working', 'Tap ✕ Stop and try again. If it keeps happening, open this page in Chrome or Safari.'); }
+      return;
+    }
+    badFrames = 0;
     const lm = res.landmarks?.[0];
     const m = res.segmentationMasks?.[0];
     if (m) {
@@ -288,12 +351,13 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     f.checks.light = light;
     // phone leaning a lot (from the phone's own motion sensor, where available)
     const phoneOk = phoneTilt == null || phoneTilt < 22;
-    f.uprightHint = !phoneOk ? 'Stand your phone up straight — it is leaning'
+    f.uprightHint = !phoneOk ? (rear ? 'Hold the phone straight up — it is leaning' : 'Stand your phone up straight — it is leaning')
       : !f.checks.upright ? 'Your phone looks tilted — straighten it so you stand upright on screen' : '';
     f.checks.upright = f.checks.upright && phoneOk;
 
     const hx = (lm[23].x + lm[24].x) / 2, hy = (lm[23].y + lm[24].y) / 2;
-    if (prevHip) stillCount = Math.hypot(hx - prevHip.x, hy - prevHip.y) < 0.006 ? stillCount + 1 : 0;
+    // a hand-held phone (back camera) is allowed a little more shake
+    if (prevHip) stillCount = Math.hypot(hx - prevHip.x, hy - prevHip.y) < (rear ? 0.013 : 0.006) ? stillCount + 1 : 0;
     prevHip = { x: hx, y: hy };
     f.checks.still = stillCount >= 3;
     return f;
@@ -341,7 +405,8 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     turnEl.classList.toggle('show', !!ph.turn && !match);
 
     let hint = '';
-    if (!match) hint = f.orient === 'turning' ? 'Keep turning slowly…' : ph.title;
+    if (!f.present) hint = envHint;
+    else if (!match) hint = f.orient === 'turning' ? 'Keep turning slowly…' : ph.title;
     else if (!envOk) hint = envHint;
     else if (ph.arms && !c.arms) hint = 'Move your arms out a little so they don’t touch your body';
     else if (ph.arms && f.legsTogether) hint = 'Stand with your feet apart';
@@ -412,7 +477,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   }
   function label(x, y, text, align) {
     ctx.save();
-    ctx.translate(x, y); ctx.scale(-1, 1); // canvas is mirrored by CSS; flip text back
+    ctx.translate(x, y); if (!rear) ctx.scale(-1, 1); // the selfie view is mirrored by CSS; flip text back
     ctx.font = '600 12px "Inter Tight", system-ui, sans-serif';
     const w = ctx.measureText(text).width + 14;
     const x0 = align === 'end' ? -w : 0;
@@ -458,13 +523,13 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
       if (!showText && !blocked) continue;
       const val = blocked ? `${ROW_LABEL[k]} · blocked` : out[k] ? `${ROW_LABEL[k]} ${out[k].toFixed(1)} cm` : ROW_LABEL[k];
       const extra = !blocked && f.cm?.[k] ? ` · ${side ? 'depth' : 'width'} ${f.cm[k].toFixed(1)}` : '';
-      label(Math.min(xa, xb) - 12, y, val + extra, 'start');
+      if (rear) label(Math.max(xa, xb) + 12, y, val + extra, 'start'); else label(Math.min(xa, xb) - 12, y, val + extra, 'start');
     }
   }
 
   /* ---------- finish / stop ---------- */
   function finish() {
-    const { out } = compute(true);
+    const { out, capped } = compute(true);
     const result = Object.fromEntries(Object.entries(out).map(([k, v]) => [k, Math.round(v * 10) / 10]));
     stopCamera();
     stage.dataset.phase = 'done';
@@ -483,16 +548,18 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     const skippedAny = Object.values(captured).some((c) => c.skipped);
     $('#ssDoneNote').textContent = skippedAny
       ? 'Some steps were skipped, so a few numbers are estimated from your height.'
+      : capped.length ? 'One or more numbers came out far from what is usual for your height, so they were limited. Loose clothes or things behind you can cause this. Scan again in fitted clothes.'
       : 'These are estimates from your outline. For the best result, scan in fitted clothes.';
     doneEl.hidden = false;
     speak(size ? `All done. Your size is ${size.size}. Your camera is now off, and no pictures were saved.` : 'All done. Your camera is now off, and no pictures were saved.', true);
-    onMeasured(result);
+    onMeasured(result, measured);
   }
 
   function stopCamera() {
+    camRun++;
     cancelAnimationFrame(raf);
     if (stream) stream.getTracks().forEach((t) => t.stop());
-    stream = null;
+    stream = null; badFrames = 0; flipBtn.hidden = true;
     video.pause(); video.srcObject = null;
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
     canvas.width = canvas.height = 0;
