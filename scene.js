@@ -4,7 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { STYLES, FABRICS, COLORS, SIZES, LOOKBOOK, lookFor } from './catalog.js?v=10';
+import { STYLES, FABRICS, COLORS, SIZES, LOOKBOOK, lookFor } from './catalog.js?v=12';
 
 /* ------------------------------------------------------------------ helpers */
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -731,6 +731,7 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
   let studio = studioLook || FIT_LOOK;
   let stateName = 'hero';
   let heat = false;
+  let photoMode = true; // studio starts on the real model photo; the dress form steps aside
   let cycleIdx = 0, cycleAt = 0;
   const live = { x: STATES.hero.x * xFactor(), camZ: STATES.hero.camZ, camY: STATES.hero.camY, lookY: STATES.hero.lookY, scan: 0, labels: 0 };
 
@@ -829,6 +830,7 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
         startSweep();
       }
     }
+    rig.visible = !(photoMode && stateName === 'studio');
     const heatT = heat && stateName === 'studio' ? 1 : 0;
     cur.update(time, dt, heatT);
     if (sweep) nxt.update(time, dt, heatT);
@@ -869,6 +871,7 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
     setState,
     setStudioLook(look) { studio = { ...look }; if (stateName === 'studio') wear(studio); },
     setHeatmap(on) { heat = !!on; },
+    setPhotoMode(on) { photoMode = !!on; },
     drag(dx) { dragVel += dx * 0.0009; },
     setActive(on) { active = !!on; if (on) clock.getDelta(); },
   };

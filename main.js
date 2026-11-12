@@ -1,6 +1,6 @@
-import { STYLES, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, lookFor } from './catalog.js?v=10';
-import { initCamera } from './camera.js?v=10';
-import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=10';
+import { STYLES, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=12';
+import { initCamera } from './camera.js?v=12';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=12';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -50,7 +50,7 @@ const studioLook = lookFor('shalwar');
 let collection = 'pk';
 let scene = null;
 
-import('./scene.js?v=10')
+import('./scene.js?v=12')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();
@@ -85,6 +85,7 @@ function buildStudio() {
     if (!b || b.dataset.coll === collection) return;
     collection = b.dataset.coll;
     renderOutfits();
+    setView('photo');
     const first = Object.keys(STYLES).find((k) => STYLES[k].region === collection);
     Object.assign(studioLook, lookFor(first, studioLook.size));
     syncStudio();
@@ -100,12 +101,14 @@ function buildStudio() {
     if (!b) return;
     const key = group.dataset.group;
     // picking an outfit loads its signature fabric, pattern and colour; the size stays
-    if (key === 'style') Object.assign(studioLook, lookFor(b.dataset.v, studioLook.size));
-    else studioLook[key] = b.dataset.v;
+    // an outfit shows its real model photo; fabric / pattern / colour / size are checked on the 3D form
+    if (key === 'style') { Object.assign(studioLook, lookFor(b.dataset.v, studioLook.size)); setView('photo'); }
+    else { studioLook[key] = b.dataset.v; setView('3d'); }
     syncStudio();
   }));
 
   $('#heatmap').addEventListener('change', (e) => {
+    if (e.target.checked) setView('3d');
     scene?.setHeatmap(e.target.checked);
     $('#heatLegend').classList.toggle('show', e.target.checked);
   });
@@ -117,13 +120,30 @@ function buildStudio() {
     while (next.style === studioLook.style && next.color === studioLook.color);
     Object.assign(studioLook, next);
     if (STYLES[next.style].region !== collection) { collection = STYLES[next.style].region; renderOutfits(); }
+    setView('3d');
     syncStudio();
   });
 
   // drag to rotate
   const zone = $('#dragZone');
   let lastX = null;
-  zone.addEventListener('pointerdown', (e) => { lastX = e.clientX; zone.setPointerCapture(e.pointerId); });
+  zone.addEventListener('pointerdown', (e) => { if (studioView !== '3d' || e.target.closest('.view-toggle')) return; lastX = e.clientX; zone.setPointerCapture(e.pointerId); });
+  $('#viewToggle').addEventListener('click', (e) => { const b = e.target.closest('[data-view]'); if (b) setView(b.dataset.view); });
+  $('#modelImg').addEventListener('load', (e) => e.target.classList.add('in'));
+
+  // real-photo lookbook rail: tap a look to open it in the studio
+  $('#looksRail').innerHTML = Object.entries(STYLES).map(([k, v]) => `<button class="look-card" type="button" data-look="${k}">
+      <img src="${photoUrl(k, 480)}" alt="${PHOTOS[k].alt}" loading="lazy" decoding="async">
+      <span><small>${COLLECTIONS[v.region].label}</small><b>${v.label}</b></span></button>`).join('');
+  $('#looksRail').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-look]');
+    if (!b) return;
+    const st = b.dataset.look;
+    collection = STYLES[st].region; renderOutfits();
+    Object.assign(studioLook, lookFor(st, studioLook.size));
+    setView('photo'); syncStudio();
+    $('#studio').scrollIntoView({ behavior: 'smooth' });
+  });
   zone.addEventListener('pointermove', (e) => { if (lastX === null) return; scene?.drag(e.clientX - lastX); lastX = e.clientX; });
   const end = () => { lastX = null; };
   zone.addEventListener('pointerup', end);
@@ -150,7 +170,18 @@ function renderOutfits() {
   $('[data-group="style"]').innerHTML = Object.entries(STYLES).filter(([, v]) => v.region === collection)
     .map(([k, v]) => `<button class="chip" type="button" data-v="${k}">${v.label}</button>`).join('');
 }
+// 'photo' = real model photo of the outfit, '3d' = the fit check on the dress form
+let studioView = 'photo';
+function setView(v) {
+  studioView = v === '3d' ? '3d' : 'photo';
+  $('#dragZone').dataset.view = studioView;
+  $$('#viewToggle [data-view]').forEach((b) => { const on = b.dataset.view === studioView; b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on)); });
+  scene?.setPhotoMode(studioView === 'photo');
+}
 function syncStudio() {
+  const img = $('#modelImg'), src = photoUrl(studioLook.style, 900);
+  if (img.getAttribute('src') !== src) { img.classList.remove('in'); img.src = src; img.alt = PHOTOS[studioLook.style].alt; }
+  $('#modelName').textContent = STYLES[studioLook.style].label;
   $$('[data-group]').forEach((g) => $$('button', g).forEach((b) => b.classList.toggle('active', b.dataset.v === studioLook[g.dataset.group])));
   const s = SIZES[fitKeyFor(studioLook.size)];
   const fill = $('#fitFill');

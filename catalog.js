@@ -87,3 +87,22 @@ export const lookFor = (style, size = 'M') => {
 };
 
 export const LOOKBOOK = ['shalwar', 'gown', 'anarkali', 'tea', 'lehenga', 'jumpsuit', 'kurti', 'slip', 'sundress'].map((s) => lookFor(s));
+
+// Real photos of each style on a model (free Unsplash licence, served from Unsplash's image CDN).
+// `page` is the photo's Unsplash page; `pos` is the CSS object-position that keeps the outfit in frame.
+const U = 'https://images.unsplash.com/';
+export const PHOTOS = {
+  shalwar:  { id: 'photo-1733470324488-d0e10d014d80', page: 'hbzeoDjfDAw', alt: 'Model in a yellow printed lawn shalwar kameez' },
+  anarkali: { id: 'photo-1707576618343-26a1b377ca7a', page: 'x1h4Nw0CwfY', alt: 'Model in a red embroidered flared anarkali with dupatta' },
+  kurti:    { id: 'photo-1733209589578-97136bee7d7a', page: 'OeYXZyM63cQ', alt: 'Model in a mint kurti with straight pants' },
+  lehenga:  { id: 'photo-1760613130027-3959a3eb939c', page: 'W2wuIqypec', alt: 'Model in ornate red and gold bridal wear' },
+  tea:      { id: 'photo-1511130558090-00af810c21b1', page: 'lSLq_xQdFNI', alt: 'Model in a floral tea dress' },
+  ascot:    { id: 'photo-1631084675579-20db768ae08a', page: 'RPG_fve14_Y', alt: 'Model in a flowing green dress' },
+  pleated:  { id: 'photo-1762343039457-3f8ae1f9b063', page: 'K8_I1OgK3lo', alt: 'Model in a black top and white pleated skirt' },
+  gown:     { id: 'photo-1583039949165-96ee24b0d8de', page: 'cqgSaFgMSqg', alt: 'Model in a red evening gown' },
+  slip:     { id: 'photo-1594739033447-80ab21e24b4c', page: 'GNd5gstTSg8', alt: 'Model in a black slip dress' },
+  sundress: { id: 'photo-1777713272516-e7b2216fe15e', page: 'y40t2wpvmqU', alt: 'Model in a white sundress in a garden' },
+  jumpsuit: { id: 'photo-1495385794356-15371f348c31', page: 'c5t_j1zlk1Y', alt: 'Model in a teal jumpsuit' },
+};
+export const photoUrl = (style, w = 900) => `${U}${PHOTOS[style].id}?auto=format&fit=crop&crop=faces,center&w=${w}&h=${Math.round(w * 1.5)}&q=80`;
+export const photoPage = (style) => `https://unsplash.com/photos/${PHOTOS[style].page}`;

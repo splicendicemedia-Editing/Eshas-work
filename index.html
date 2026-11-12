@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=10">
+  <link rel="stylesheet" href="styles.css?v=12">
   <script type="importmap">
     { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -209,6 +209,17 @@
       </div>
     </section>
 
+    <!-- REAL LOOKS -->
+    <section id="looks" class="solid looks">
+      <div class="wrap">
+        <p class="eyebrow reveal">The collection</p>
+        <h2 class="h2 sm reveal">Styles women <em>love to wear.</em></h2>
+        <p class="lead reveal">Pakistani, British and American favourites — tap any look to try it in your size.</p>
+      </div>
+      <div class="looks-rail" id="looksRail" aria-label="Outfits"></div>
+      <p class="fine center looks-credit">Model photos: free-licence images from <a href="https://unsplash.com/?utm_source=mirra_concept&utm_medium=referral" target="_blank" rel="noopener">Unsplash</a> photographers, shown as style examples.</p>
+    </section>
+
     <!-- LIVE STUDIO -->
     <section id="studio" class="studio" data-state="studio">
       <div class="wrap studio-grid">
@@ -219,6 +230,7 @@
 
           <div class="coll-tabs" role="tablist" aria-label="Collection" id="collTabs"></div>
           <div class="ctrl"><span class="ctrl-label">Outfit</span><div class="chips" data-group="style"></div></div>
+          <p class="ctrl-note">Change fabric, pattern, colour or size to check the fit in 3D.</p>
           <div class="ctrl"><span class="ctrl-label">Fabric</span><div class="chips" data-group="fabric"></div></div>
           <div class="ctrl"><span class="ctrl-label">Pattern</span><div class="chips" data-group="pattern"></div></div>
           <div class="ctrl"><span class="ctrl-label">Colour</span><div class="swatches" data-group="color"></div></div>
@@ -237,7 +249,15 @@
             <button class="btn btn-ghost" id="randomLook" type="button">Surprise me</button>
           </div>
         </div>
-        <div class="drag-zone" id="dragZone" aria-label="Drag to rotate the model">
+        <div class="drag-zone" id="dragZone" data-view="photo" aria-label="Outfit preview">
+          <div class="view-toggle" id="viewToggle" role="tablist" aria-label="Preview type">
+            <button type="button" role="tab" data-view="photo" class="active">On a model</button>
+            <button type="button" role="tab" data-view="3d">3D fit check</button>
+          </div>
+          <figure class="model-photo" id="modelPhoto">
+            <img id="modelImg" alt="" decoding="async">
+            <figcaption><b id="modelName"></b><span>Real photo · style example</span></figcaption>
+          </figure>
           <span class="drag-hint">
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2M21 12a9 9 0 0 1-15.5 6.2M18 2v4h-4M6 22v-4h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             Drag to rotate
@@ -521,6 +541,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="main.js?v=10"></script>
+  <script type="module" src="main.js?v=12"></script>
 </body>
 </html>
