@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=15">
+  <link rel="stylesheet" href="styles.css?v=17">
   <script type="importmap">
     { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -57,7 +57,7 @@
         <div class="hero-copy">
           <p class="eyebrow reveal"><span class="pulse"></span>Your fitting room, anywhere</p>
           <h1 class="reveal">See it on <em>you</em><br>before you buy.</h1>
-          <p class="lead reveal">Hold up your phone and Miraal's live mirror puts a shalwar kameez, an anarkali, a tea dress or a gown on you. Then it measures you with the camera and tells you your size.</p>
+          <p class="lead reveal">Take one clear photo and see yourself in a shalwar kameez, an anarkali, a tea dress or a gown. Then let the camera measure you and tell you your size.</p>
           <div class="cta reveal">
             <button class="btn btn-primary" type="button" data-open-mirror>Try it on me
               <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 10h11m-4-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -461,51 +461,71 @@
     </p>
   </div>
 
-  <!-- Live mirror: try outfits on yourself (on-device camera overlay) -->
-  <div class="mirror-stage" id="mirrorStage" role="dialog" aria-modal="true" aria-label="Live try-on mirror">
+  <!-- Try it on me: guided photos (front, back), then outfits on your own photo -->
+  <div class="mirror-stage" id="mirrorStage" data-mode="start" role="dialog" aria-modal="true" aria-label="Try it on me">
     <video id="mrVideo" playsinline muted autoplay></video>
-    <canvas id="mrCanvas" aria-hidden="true"></canvas>
+    <div class="mr-view">
+      <div class="mr-frame" id="mrFrame">
+        <img id="mrImg" alt="You in the chosen outfit">
+        <canvas id="mrDraw" aria-hidden="true"></canvas>
+        <div class="mr-busy" id="mrBusy" hidden><span class="mr-spin"></span><b>Creating your look…</b><small>About 20 seconds</small></div>
+      </div>
+    </div>
     <div class="mr-shade" aria-hidden="true"></div>
+    <div class="mr-flash" id="mrFlash" aria-hidden="true"></div>
+
     <header class="mr-top">
-      <div class="mr-title"><b id="mrName">Live mirror</b><span>Live on your device · nothing is recorded</span></div>
+      <div class="mr-title"><b id="mrName">Try it on me</b><span id="mrSub"></span></div>
       <button class="btn btn-small ss-stop" id="mrClose" type="button">✕ Close</button>
     </header>
+
+    <!-- taking the photos -->
     <p class="mr-hint" id="mrHint" role="status" aria-live="polite"></p>
+    <div class="ss-guide mr-guide">
+      <div class="ss-ring" id="mrRing"><span id="mrPct"></span></div>
+      <div class="ss-guide-text">
+        <h3 id="mrTitle">Face the camera</h3>
+        <p id="mrText"></p>
+      </div>
+      <div class="mr-guide-btns">
+        <button class="ss-skip" id="mrShoot" type="button">Take it now</button>
+        <button class="ss-skip" id="mrSkip" type="button" hidden>Skip back photo</button>
+      </div>
+    </div>
+
+    <!-- outfits on the photo -->
     <div class="mr-bottom">
+      <div class="mr-tools">
+        <div class="mr-seg" id="mrSide" role="group" aria-label="Which photo">
+          <button type="button" data-side="front" class="active">Front</button><button type="button" data-side="back">Back</button>
+        </div>
+        <button class="btn btn-primary mr-real" id="mrReal" type="button" hidden>See it for real</button>
+      </div>
+      <p class="mr-left" id="mrLeft"></p>
       <div class="mr-colors" id="mrColors" aria-label="Colour"></div>
       <div class="mr-rail" id="mrRail" aria-label="Outfits"></div>
       <div class="mr-actions">
-        <span class="mr-side">Swipe to change outfit</span>
-        <button class="mr-shot" id="mrShot" type="button" aria-label="Take a picture"></button>
-        <span class="mr-side">Tap to take a picture</span>
+        <button class="btn btn-ghost" id="mrRetake" type="button">Retake photos</button>
+        <button class="btn btn-ghost" id="mrSave" type="button">Save picture</button>
       </div>
     </div>
 
     <div class="mr-card" id="mrStart">
       <div class="mr-card-in glass">
         <h3>Try it on yourself</h3>
-        <p>Your camera becomes a mirror and the outfit is drawn over you, live.</p>
+        <p>We take two clear photos of you, then you see the outfits on your own picture.</p>
         <ul class="mr-tips">
-          <li>Stand back so the camera sees you from head to knees</li>
-          <li>Face the camera, in good light</li>
-          <li>Swipe through outfits and colours at the bottom</li>
+          <li>Stand your phone up and step back, so it sees you from head to knees</li>
+          <li>Hold still and the photo is taken by itself: front first, then turn around</li>
+          <li>Fitted clothes and good light give the best result</li>
         </ul>
         <div class="privacy-line">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <p><b>Private.</b> The camera picture stays on your device. Nothing is uploaded or saved unless you tap Save on a picture you take.</p>
+          <p id="mrPrivacy"></p>
         </div>
-        <button class="btn btn-primary" id="mrGo" type="button">Agree &amp; start mirror</button>
+        <button class="btn btn-primary" id="mrGo" type="button">Agree &amp; start camera</button>
         <button class="btn btn-ghost" id="mrCancel" type="button">Not now</button>
         <p class="fine" id="mrStatus">Your phone will ask to use the camera. Tap Allow.</p>
-      </div>
-    </div>
-
-    <div class="mr-card" id="mrPhoto" hidden>
-      <div class="mr-card-in glass">
-        <img class="mr-preview" id="mrPreview" alt="Your try-on picture">
-        <a class="btn btn-primary" id="mrSave" download="miraal-try-on.jpg">Save picture</a>
-        <button class="btn btn-ghost" id="mrBack" type="button">Back to mirror</button>
-        <p class="fine">This picture is only on your device. It is deleted when you go back.</p>
       </div>
     </div>
   </div>
@@ -591,6 +611,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="main.js?v=15"></script>
+  <script type="module" src="main.js?v=17"></script>
 </body>
 </html>

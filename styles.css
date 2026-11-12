@@ -766,21 +766,55 @@ h1 { font-size: clamp(54px, 6.6vw, 108px); }
 .hero-photos figure:hover .try-pill { opacity: 1; transform: none; }
 .scroll-hint { display: none; }
 
-/* ---------- live mirror (try it on yourself) ---------- */
+/* ---------- try it on me: guided photos, then outfits on the photo ---------- */
 body.mirror-open { overflow: hidden; }
 .mirror-stage { position: fixed; inset: 0; z-index: 80; background: #0b0a0f; opacity: 0; visibility: hidden; transition: opacity .4s, visibility .4s; overflow: hidden; }
 .mirror-stage.open { opacity: 1; visibility: visible; }
-.mirror-stage video, .mirror-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-.mr-shade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(5, 4, 8, .6), transparent 16%, transparent 60%, rgba(5, 4, 8, .85)); }
+.mirror-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: none; }
+.mirror-stage[data-mode="capture"] video { display: block; }
+.mr-shade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(5, 4, 8, .6), transparent 16%, transparent 58%, rgba(5, 4, 8, .88)); }
+.mirror-stage:not([data-mode="capture"]) .mr-shade { display: none; }
+.mr-flash { position: absolute; inset: 0; z-index: 4; background: #fff; opacity: 0; pointer-events: none; }
+.mr-flash.go { animation: mrFlash .5s ease-out; }
+@keyframes mrFlash { 0% { opacity: .9; } 100% { opacity: 0; } }
 .mr-top { position: absolute; z-index: 3; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 16px; }
 .mr-title { display: grid; }
 .mr-title b { font-family: var(--serif); font-weight: 400; font-size: 26px; line-height: 1.1; }
-.mr-title span { font-size: 12px; color: var(--ink-2); }
-.mr-hint { position: absolute; z-index: 3; left: 50%; top: 42%; transform: translate(-50%, -50%); width: max-content; max-width: calc(100% - 32px); padding: 12px 20px; border-radius: 18px; background: rgba(20, 16, 10, .78); border: 1px solid rgba(242, 196, 107, .55); color: #ffe2a8; font-size: 18px; font-weight: 600; text-align: center; opacity: 0; transition: opacity .3s; pointer-events: none; }
+.mr-title span { font-size: 12.5px; color: var(--ink-2); }
+.mirror-stage[data-mode="start"] .mr-top .mr-title { visibility: hidden; }
+
+/* capture */
+.mr-hint { position: absolute; z-index: 3; left: 50%; top: 40%; transform: translate(-50%, -50%); width: max-content; max-width: calc(100% - 32px); padding: 12px 20px; border-radius: 18px; background: rgba(20, 16, 10, .8); border: 1px solid rgba(242, 196, 107, .55); color: #ffe2a8; font-size: 19px; font-weight: 600; line-height: 1.3; text-align: center; opacity: 0; transition: opacity .3s; pointer-events: none; }
 .mr-hint.show { opacity: 1; }
-.mr-bottom { position: absolute; z-index: 3; left: 0; right: 0; bottom: 0; display: grid; gap: 10px; padding: 0 0 14px; }
+.mr-guide, .mr-hint { display: none; }
+.mirror-stage[data-mode="capture"] .mr-guide { display: flex; }
+.mirror-stage[data-mode="capture"] .mr-hint { display: block; }
+.mr-guide-btns { display: grid; gap: 8px; flex: none; }
+
+/* looks */
+.mr-view { position: absolute; inset: 64px 0 0; display: none; justify-content: center; align-items: flex-start; }
+.mirror-stage[data-mode="looks"] .mr-view { display: flex; }
+.mr-frame { position: relative; border-radius: 20px; overflow: hidden; background: #17141d; box-shadow: 0 30px 70px -30px rgba(0, 0, 0, .8); }
+.mr-frame img, .mr-frame canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.mr-busy { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px; text-align: center; background: rgba(8, 7, 11, .62); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.mr-busy[hidden] { display: none; }
+.mr-busy b { font-family: var(--serif); font-weight: 400; font-size: 24px; }
+.mr-busy small { color: var(--ink-2); font-size: 13px; }
+.mr-spin { width: 38px; height: 38px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .2); border-top-color: #f3dcb4; animation: mrSpin 1s linear infinite; }
+@keyframes mrSpin { to { transform: rotate(360deg); } }
+.mr-bottom { position: absolute; z-index: 3; left: 0; right: 0; bottom: 0; display: none; gap: 8px; padding: 10px 0 14px; background: linear-gradient(0deg, #0b0a0f 70%, transparent); }
+.mirror-stage[data-mode="looks"] .mr-bottom { display: grid; }
+.mr-tools { display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap; padding: 0 12px; }
+.mr-seg { display: inline-flex; padding: 3px; border-radius: 999px; border: 1px solid var(--line-2); background: rgba(255, 255, 255, .06); }
+.mr-seg button { height: 34px; padding: 0 16px; border-radius: 999px; font-size: 14px; color: var(--ink-2); }
+.mr-seg button.active { background: #f4efe7; color: #14121a; font-weight: 600; }
+.mr-seg button:disabled { opacity: .35; cursor: not-allowed; }
+.mr-real { height: 42px; padding: 0 20px; }
+.mr-real[hidden] { display: none; }
+.mr-left { text-align: center; font-size: 12.5px; color: var(--ink-2); padding: 0 16px; }
 .mr-colors { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 0 12px; }
-.mr-colors button { width: 30px; height: 30px; border-radius: 50%; background: var(--c); border: 2px solid rgba(255, 255, 255, .35); transition: transform .2s; }
+.mirror-stage.is-real .mr-colors { visibility: hidden; height: 0; }
+.mr-colors button { width: 28px; height: 28px; border-radius: 50%; background: var(--c); border: 2px solid rgba(255, 255, 255, .35); transition: transform .2s; }
 .mr-colors button.active { border-color: #fff; transform: scale(1.18); box-shadow: 0 0 0 2px rgba(0, 0, 0, .5); }
 .mr-rail { display: flex; gap: 10px; overflow-x: auto; padding: 4px 16px; scroll-snap-type: x proximity; scrollbar-width: none; }
 .mr-rail::-webkit-scrollbar { display: none; }
@@ -788,22 +822,25 @@ body.mirror-open { overflow: hidden; }
 .mr-rail img { width: 62px; height: 84px; object-fit: cover; border-radius: 14px; border: 2px solid transparent; transition: .25s; }
 .mr-rail button.active { color: #fff; font-weight: 600; }
 .mr-rail button.active img { border-color: #f3dcb4; transform: translateY(-4px); }
-.mr-actions { display: flex; justify-content: center; align-items: center; gap: 22px; }
-.mr-shot { width: 66px; height: 66px; border-radius: 50%; border: 4px solid #fff; background: rgba(255, 255, 255, .25); position: relative; }
-.mr-shot::after { content: ''; position: absolute; inset: 5px; border-radius: 50%; background: #fff; transition: transform .15s; }
-.mr-shot:active::after { transform: scale(.88); }
-.mr-side { font-size: 13px; color: var(--ink-2); width: 92px; text-align: center; }
-.mr-card { position: absolute; z-index: 5; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(5, 4, 8, .86); overflow-y: auto; }
-.mr-card[hidden] { display: none; }
+.mr-actions { display: flex; justify-content: center; gap: 10px; padding: 0 12px; }
+.mr-actions .btn { height: 42px; padding: 0 18px; font-size: 14px; }
+
+/* start card */
+.mr-card { position: absolute; z-index: 5; inset: 0; display: none; place-items: center; padding: 20px; background: rgba(5, 4, 8, .86); overflow-y: auto; }
+.mirror-stage[data-mode="start"] .mr-card { display: grid; }
 .mr-card-in { width: min(460px, 100%); padding: 28px; border-radius: 24px; border: 1px solid; margin: auto; text-align: center; }
 .mr-card-in h3 { font-family: var(--serif); font-weight: 400; font-size: clamp(30px, 5vw, 40px); line-height: 1.05; margin-bottom: 8px; }
 .mr-card-in p { color: var(--ink-2); font-size: 15px; }
 .mr-tips { list-style: none; display: grid; gap: 8px; margin: 18px 0; text-align: left; font-size: 15px; }
 .mr-tips li { display: flex; gap: 10px; align-items: flex-start; }
 .mr-tips li::before { content: '✓'; color: var(--good); font-weight: 700; }
+.mr-card-in .privacy-line { text-align: left; }
 .mr-card-in .btn { width: 100%; margin-top: 10px; }
 .mr-card-in .fine { margin-top: 12px; }
-.mr-preview { max-width: 100%; max-height: 56vh; border-radius: 18px; display: block; margin: 0 auto 14px; }
+@media (max-width: 900px) {
+  .mr-title b { font-size: 22px; }
+  .mr-guide-btns { width: 100%; grid-template-columns: 1fr 1fr; }
+}
 
 @media (max-width: 960px), (max-aspect-ratio: 1/1) {
   .hero { align-items: flex-start; padding: 92px 0 56px; }
