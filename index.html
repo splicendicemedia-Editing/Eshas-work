@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=5">
   <script type="importmap">
     { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -139,6 +139,7 @@
             <div class="panel-head">
               <label class="height-input">Your height
                 <input id="heightIn" type="number" value="168" min="130" max="215" inputmode="numeric"> cm
+                <small class="h-ft-hint" id="heightFt"></small>
               </label>
               <span class="badge" id="mBadge">Live estimate</span>
             </div>
@@ -354,41 +355,43 @@
   </main>
 
   <!-- Guided live body scan (full screen) -->
-  <div class="scan-stage" id="scanStage" role="dialog" aria-modal="true" aria-label="Live body scan" data-phase="ready">
-    <video id="ssVideo" playsinline muted></video>
+  <div class="scan-stage" id="scanStage" role="dialog" aria-modal="true" aria-label="Body scan" data-phase="ready">
+    <video id="ssVideo" playsinline muted autoplay></video>
     <canvas id="ssCanvas" aria-hidden="true"></canvas>
     <div class="ss-shade" aria-hidden="true"></div>
 
     <header class="ss-top">
-      <div class="ss-brand"><span class="logo-mark"></span>Body scan</div>
-      <ol class="ss-steps">
-        <li>Get ready</li><li>Front</li><li>Side</li><li>Back</li><li>Side</li><li>Done</li>
-      </ol>
+      <div class="ss-progress">
+        <span class="ss-stepno" id="ssStepNo">Getting ready</span>
+        <ol class="ss-dots" aria-hidden="true"><li></li><li></li><li></li><li></li><li></li></ol>
+      </div>
       <div class="ss-actions">
+        <button class="ss-icon" id="ssLiveToggle" type="button" aria-pressed="false" title="Show measurements">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 8h18v8H3zM7 8v3M11 8v4M15 8v3M19 8v4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </button>
         <button class="ss-icon on" id="ssVoice" type="button" aria-pressed="true" title="Voice guidance on/off">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         </button>
-        <button class="btn btn-small ss-stop" id="ssStop" type="button">Stop &amp; delete</button>
+        <button class="btn btn-small ss-stop" id="ssStop" type="button">✕ Stop</button>
       </div>
     </header>
 
-    <aside class="ss-card ss-checks" aria-label="Scan precautions">
-      <h4>Precautions <small>checked live</small></h4>
+    <aside class="ss-card ss-checks" aria-label="Quick checks">
+      <h4>Quick checks</h4>
       <ul>
-        <li data-c="height"><i></i><span>Your height</span><label class="ss-h"><input id="ssHeight" type="number" min="130" max="215" inputmode="numeric" aria-label="Your height in cm"> cm</label></li>
-        <li data-c="body"><i></i><span>Whole body in view<em></em></span></li>
-        <li data-c="distance"><i></i><span>About 2 m from the camera<em></em></span></li>
-        <li data-c="light"><i></i><span>Good, even lighting<em></em></span></li>
-        <li data-c="arms"><i></i><span>Arms slightly away from body<em></em></span></li>
+        <li data-c="body"><i></i><span>Head to toe in view<em></em></span></li>
+        <li data-c="distance"><i></i><span>About 2 m away<em></em></span></li>
+        <li data-c="upright"><i></i><span>Phone standing upright<em></em></span></li>
+        <li data-c="background"><i></i><span>Nothing touching you from behind<em></em></span></li>
+        <li data-c="light"><i></i><span>Bright enough<em></em></span></li>
         <li data-c="still"><i></i><span>Standing still<em></em></span></li>
       </ul>
-      <p class="ss-tips"><b>For best results:</b> fitted clothes · long hair tied up · plain background · camera at waist height, upright · shoes off</p>
     </aside>
 
     <aside class="ss-card ss-live" aria-label="Live measurements">
       <h4><span class="live-dot"></span>Live measurements</h4>
       <dl id="ssLiveList"></dl>
-      <p class="ss-legend"><span class="est">~ estimating</span><span class="ok">✓ captured</span></p>
+      <p class="ss-legend"><span class="est">~ measuring</span><span class="ok">✓ done</span></p>
     </aside>
 
     <div class="ss-turn" id="ssTurn" aria-hidden="true">
@@ -398,7 +401,7 @@
         <path d="M60 46 l0 -6" stroke="#f4efe7" stroke-width="3" stroke-linecap="round"/>
         <g class="arc"><path d="M60 14 A46 46 0 0 0 16 66" fill="none" stroke="#e2c08d" stroke-width="4" stroke-linecap="round"/><path d="M8 58 L16 68 L25 58" fill="none" stroke="#e2c08d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></g>
       </svg>
-      <span>Turn to your left</span>
+      <span>Turn slowly to your left</span>
     </div>
 
     <p class="ss-hint" id="ssHint" role="status" aria-live="polite"></p>
@@ -409,52 +412,80 @@
         <h3 id="ssTitle">Starting…</h3>
         <p id="ssSub"></p>
       </div>
-      <button class="ss-skip" id="ssSkip" type="button" hidden>Skip step</button>
+      <button class="ss-skip" id="ssSkip" type="button" hidden>Skip this step</button>
     </div>
 
     <div class="ss-done" id="ssDone" hidden>
       <div class="ss-done-card glass">
-        <div class="modal-ico"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <h3>Your measurements</h3>
-        <p class="modal-sub">Camera is off — your picture was deleted the moment the scan ended.</p>
+        <p class="eyebrow">Scan complete · camera off · picture deleted</p>
+        <div class="ss-size" id="ssSize"></div>
         <dl class="ss-result" id="ssResult"></dl>
         <p class="fine" id="ssDoneNote"></p>
-        <div class="modal-actions">
-          <button class="btn btn-ghost" id="ssAgain" type="button">Scan again</button>
-          <button class="btn btn-primary" id="ssSaveProfile" type="button">Save to my profile</button>
+        <div class="modal-actions ss-done-actions">
+          <button class="btn btn-primary" id="ssTry" type="button">Try dresses in my size</button>
+          <button class="btn btn-ghost" id="ssSaveProfile" type="button">Save to my profile</button>
         </div>
-        <button class="ss-close-link" id="ssClose" type="button">Close</button>
+        <div class="ss-done-links">
+          <button class="ss-close-link" id="ssAgain" type="button">Scan again</button>
+          <button class="ss-close-link" id="ssClose" type="button">Close</button>
+        </div>
       </div>
     </div>
 
     <p class="ss-privacy">
       <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
-      Processed in your browser · no picture is saved · the camera turns off when you finish
+      Nothing is recorded · your picture is deleted when you finish
     </p>
   </div>
 
-  <!-- Camera consent -->
+  <!-- Camera setup + consent -->
   <div class="modal" id="consentModal" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
-    <div class="modal-card glass">
+    <div class="modal-card glass setup-card">
       <button class="modal-x" type="button" data-close aria-label="Close">×</button>
-      <div class="modal-ico">
-        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h3 id="consentTitle">Find your size in about a minute</h3>
+      <p class="modal-sub">Your camera measures you while a friendly voice tells you what to do.</p>
+
+      <div class="setup-height">
+        <div class="setup-height-top">
+          <label for="setupH">1 · Your height</label>
+          <div class="unit-toggle" role="group" aria-label="Height unit">
+            <button type="button" data-unit="cm" class="on">cm</button><button type="button" data-unit="ft">ft / in</button>
+          </div>
+        </div>
+        <div class="h-row h-cm"><input id="setupH" type="number" inputmode="numeric" min="130" max="215" aria-label="Height in centimetres"><span>cm</span></div>
+        <div class="h-row h-ft" hidden><input id="setupFt" type="number" inputmode="numeric" min="4" max="7" aria-label="Feet"><span>ft</span><input id="setupIn" type="number" inputmode="numeric" min="0" max="11" aria-label="Inches"><span>in</span></div>
+        <p class="setup-err" id="setupErr" role="alert"></p>
       </div>
-      <h3 id="consentTitle">Before we turn on your camera</h3>
-      <p class="modal-sub">MIRRA measures you from a live camera view. Here's exactly what happens to it:</p>
-      <ul class="ticks">
+
+      <p class="setup-label">2 · Get set up</p>
+      <ol class="setup-steps">
+        <li>
+          <svg viewBox="0 0 48 48" aria-hidden="true"><rect x="17" y="8" width="14" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 40h32" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M24 34v6" stroke="currentColor" stroke-width="2"/></svg>
+          <b>Stand your phone up</b><span>at waist height, against something steady</span>
+        </li>
+        <li>
+          <svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="34" cy="10" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M34 14v14M34 28l-4 12M34 28l4 12M28 20h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M6 24h16M17 19l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <b>Step back about 2 m</b><span>so your head and feet both show</span>
+        </li>
+        <li>
+          <svg viewBox="0 0 48 48" aria-hidden="true"><rect x="6" y="6" width="36" height="36" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="24" cy="16" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M24 20v10M24 30l-4 10M24 30l4 10M16 24h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <b>Plain wall behind you</b><span>no furniture touching you · fitted clothes</span>
+        </li>
+      </ol>
+
+      <div class="privacy-line">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <p><b>We never keep your picture.</b> Everything happens on your device, nothing is uploaded, and the camera picture is deleted the moment you finish. Only your measurements remain — and only if you save them. <button type="button" class="link-btn" id="privacyMore" aria-expanded="false">More</button></p>
+      </div>
+      <ul class="ticks privacy-more" id="privacyList" hidden>
         <li><span><b>We do not keep your picture.</b> No photo or video is saved — ever.</span></li>
         <li><span><b>Deleted right after you try it.</b> The camera switches off and every frame is discarded as soon as the scan ends.</span></li>
         <li><span><b>Stays on your device.</b> Body tracking runs inside your browser. Nothing is uploaded.</span></li>
         <li><span><b>Only numbers remain</b> — and only if you choose to save them to your profile.</span></li>
       </ul>
-      <p class="modal-tip">You'll be guided by voice to turn a full circle — <b>front, side, back, side</b> — about 40 seconds. Stand about 2 m away so your head and feet are both in view, in fitted clothes.</p>
-      <label class="check"><input type="checkbox" id="consentAgree"><span class="box"></span>I understand and want to use my camera for this scan</label>
-      <div class="modal-actions">
-        <button class="btn btn-ghost" type="button" data-close>Not now</button>
-        <button class="btn btn-primary" type="button" id="consentAllow" disabled>Allow camera</button>
-      </div>
-      <p class="fine">Your browser will ask for permission next. You can stop the camera at any time.</p>
+
+      <button class="btn btn-primary btn-block" type="button" id="consentAllow">Agree &amp; start camera</button>
+      <p class="fine setup-fine">Your phone will ask to use the camera — tap <b>Allow</b>. Turn your sound on for voice guidance.</p>
     </div>
   </div>
 
@@ -488,6 +519,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="main.js"></script>
+  <script type="module" src="main.js?v=5"></script>
 </body>
 </html>

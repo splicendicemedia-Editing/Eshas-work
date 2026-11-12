@@ -4,18 +4,23 @@
 const $ = (s) => document.querySelector(s);
 const KEY = 'mirra.profile.v1';
 const LABELS = { bust: 'Bust', waist: 'Waist', hips: 'Hips', shoulder: 'Shoulders', inseam: 'Inseam', arm: 'Arm', neck: 'Neck', thigh: 'Thigh' };
+// upper limits per size (cm). Bust and hips decide; waist only pushes up when it is clearly bigger.
 const SIZE_TABLE = [
-  { size: 'XS', eu: 34, bust: 82, hips: 90 },
-  { size: 'S', eu: 36, bust: 88, hips: 96 },
-  { size: 'M', eu: 38, bust: 94, hips: 102 },
-  { size: 'L', eu: 40, bust: 100, hips: 108 },
-  { size: 'XL', eu: 42, bust: Infinity, hips: Infinity },
+  { size: 'XS', eu: 34, bust: 82, waist: 66, hips: 90 },
+  { size: 'S', eu: 36, bust: 88, waist: 72, hips: 96 },
+  { size: 'M', eu: 38, bust: 94, waist: 78, hips: 102 },
+  { size: 'L', eu: 40, bust: 100, waist: 84, hips: 108 },
+  { size: 'XL', eu: 42, bust: Infinity, waist: Infinity, hips: Infinity },
 ];
+export const SIZE_ORDER = SIZE_TABLE.map((r) => r.size);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 export function recommendSize(m) {
   if (!m || !m.bust || !m.hips) return null;
-  const idx = Math.max(SIZE_TABLE.findIndex((r) => m.bust <= r.bust), SIZE_TABLE.findIndex((r) => m.hips <= r.hips));
+  const at = (k, v) => SIZE_TABLE.findIndex((r) => v <= r[k]);
+  let idx = Math.max(at('bust', m.bust), at('hips', m.hips));
+  // waist is the least reliable camera value: only let it raise the size by one, and only with a clear margin
+  if (m.waist && at('waist', m.waist - 3) > idx) idx = Math.min(idx + 1, SIZE_TABLE.length - 1);
   return SIZE_TABLE[idx < 0 ? SIZE_TABLE.length - 1 : idx];
 }
 

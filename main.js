@@ -1,6 +1,6 @@
-import { STYLES, FABRICS, COLORS, SIZES } from './catalog.js';
-import { initCamera } from './camera.js';
-import { initProfile } from './profile.js';
+import { STYLES, FABRICS, COLORS, SIZES } from './catalog.js?v=5';
+import { initCamera } from './camera.js?v=5';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=5';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -49,7 +49,7 @@ function toast(msg) {
 const studioLook = { style: 'slip', fabric: 'silk', color: 'champagne', size: 'M' };
 let scene = null;
 
-import('./scene.js')
+import('./scene.js?v=5')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();
@@ -80,7 +80,7 @@ function buildStudio() {
   $('[data-group="style"]').innerHTML = Object.entries(STYLES).map(([k, v]) => `<button class="chip" type="button" data-v="${k}">${v.label}</button>`).join('');
   $('[data-group="fabric"]').innerHTML = Object.entries(FABRICS).map(([k, v]) => `<button class="chip" type="button" data-v="${k}">${v.label}</button>`).join('');
   $('[data-group="color"]').innerHTML = Object.entries(COLORS).map(([k, v]) => `<button class="swatch" type="button" data-v="${k}" style="--c:${v.hex}" aria-label="${v.label}" title="${v.label}"><span></span></button>`).join('');
-  $('[data-group="size"]').innerHTML = Object.keys(SIZES).map((k) => `<button class="size" type="button" data-v="${k}">${k}${k === 'M' ? '<i>Your size</i>' : ''}</button>`).join('');
+  renderSizes();
 
   $$('[data-group]').forEach((group) => group.addEventListener('click', (e) => {
     const b = e.target.closest('button');
@@ -117,15 +117,37 @@ function buildStudio() {
   syncStudio();
 }
 
+// Fit is relative to the shopper's own size: before a scan the demo assumes M,
+// after a scan "Your size" moves to the recommended size and every other size is judged against it.
+let mySize = null;
+const SIZE_KEYS = Object.keys(SIZES); // XS..XL, M in the middle = ideal ease
+function fitKeyFor(size) {
+  const base = mySize || 'M';
+  const diff = SIZE_ORDER.indexOf(size) - SIZE_ORDER.indexOf(base);
+  return SIZE_KEYS[clamp(2 + diff, 0, SIZE_KEYS.length - 1)];
+}
+function renderSizes() {
+  const mine = mySize || 'M';
+  $('[data-group="size"]').innerHTML = SIZE_KEYS.map((k) => `<button class="size" type="button" data-v="${k}">${k}${k === mine ? `<i>${mySize ? 'Your size' : 'Typical'}</i>` : ''}</button>`).join('');
+}
 function syncStudio() {
   $$('[data-group]').forEach((g) => $$('button', g).forEach((b) => b.classList.toggle('active', b.dataset.v === studioLook[g.dataset.group])));
-  const s = SIZES[studioLook.size];
+  const s = SIZES[fitKeyFor(studioLook.size)];
   const fill = $('#fitFill');
   fill.style.width = `${s.fit}%`;
   fill.dataset.tone = s.tone;
-  $('#fitText').textContent = `${s.text} · ${s.fit}% fit`;
+  const text = mySize && studioLook.size === mySize ? 'Your size — ideal fit' : s.text;
+  $('#fitText').textContent = `${text} · ${s.fit}% fit`;
   $('#lookName').textContent = `${STYLES[studioLook.style].label} · ${COLORS[studioLook.color].label} ${FABRICS[studioLook.fabric].label.toLowerCase()} · size ${studioLook.size}`;
-  scene?.setStudioLook({ ...studioLook });
+  // the 3D garment drapes with the ease of the *relative* fit, so a size that is too small looks tight on you
+  scene?.setStudioLook({ ...studioLook, size: fitKeyFor(studioLook.size) });
+}
+function setMySize(size) {
+  if (!size || !SIZES[size]) return;
+  mySize = size;
+  studioLook.size = size;
+  renderSizes();
+  syncStudio();
 }
 buildStudio();
 
@@ -138,7 +160,11 @@ const mGrid = $('#mGrid');
 mGrid.innerHTML = RATIOS.map(([k, l]) => `<div class="m-cell"><small>${l}</small><b data-m="${k}">0<span>cm</span></b></div>`).join('');
 const shown = {};
 let measuredLive = false;
-const getHeight = () => clamp(parseFloat($('#heightIn').value) || 168, 130, 215);
+let exactHeight = null;
+const getHeight = () => {
+  const v = parseFloat($('#heightIn').value) || 168;
+  return clamp(exactHeight && Math.round(exactHeight) === Math.round(v) ? exactHeight : v, 130, 215);
+};
 const estimateFromHeight = (h) => Object.fromEntries(RATIOS.map(([k, , r]) => [k, h * r]));
 function updateMeasures() {
   if (measuredLive) return; // camera values win once captured
@@ -147,6 +173,7 @@ function updateMeasures() {
 function setMeasured(values) {
   measuredLive = true;
   animateTo(values);
+  setMySize(recommendSize(values)?.size);
   $('#mBadge').textContent = 'Measured by camera';
   $('#mBadge').classList.add('cam');
 }
@@ -169,7 +196,16 @@ function animateTo(values) {
   $$('.p-tag b').forEach((b) => { if (values[b.dataset.k] != null) b.textContent = `${values[b.dataset.k].toFixed(1)} cm`; });
 }
 function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
+function showFeet() {
+  const h = parseFloat($('#heightIn').value);
+  if (!(h >= 130 && h <= 215)) { $('#heightFt').textContent = ''; return; }
+  let ft = Math.floor(h / 30.48), inch = Math.round(h / 2.54 - ft * 12);
+  if (inch === 12) { ft++; inch = 0; }
+  $('#heightFt').textContent = `≈ ${ft} ft ${inch} in`;
+}
+showFeet();
 $('#heightIn').addEventListener('input', () => {
+  showFeet();
   measuredLive = false;
   $('#mBadge').textContent = 'Live estimate';
   $('#mBadge').classList.remove('cam');
@@ -200,9 +236,11 @@ setInterval(() => {
 const profile = initProfile({ getMeasures: () => ({ ...shown }), getHeight, isMeasured: () => measuredLive, toast });
 initCamera({
   getHeight,
-  setHeight: (h) => { $('#heightIn').value = Math.round(h); },
+  // keep the exact height (ft/in converts to fractional cm); the field shows it rounded
+  setHeight: (h) => { exactHeight = h; $('#heightIn').value = Math.round(h); showFeet(); updateMeasures(); },
   onMeasured: setMeasured,
   onSave: () => profile.open(),
+  onTry: (size) => { setMySize(size); $('#studio').scrollIntoView({ behavior: 'smooth' }); },
   onStage: (open) => scene?.setActive(!open), // pause the 3D scene while the scan is full screen
   toast,
 });

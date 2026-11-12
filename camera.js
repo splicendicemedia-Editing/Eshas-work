@@ -1,12 +1,14 @@
 // Guided live body scan.
-// - Consent first, then the browser's own camera permission prompt.
-// - Full-screen stage: live precaution checklist, spoken + on-screen turning guidance
-//   (front -> side -> back -> other side), live measurements drawn on the body.
-// - MediaPipe Pose Landmarker (+ person segmentation mask) runs locally in the browser.
-//   Frames are never stored or uploaded; the camera is switched off and cleared when the scan ends.
-// Measurements: height you enter gives the scale (cm per pixel of your silhouette). Front/back
-// silhouette widths and side depths at neck / chest / waist / hips / thigh are combined as
-// ellipse circumferences. These are estimates, not tailor-grade values.
+// - Simple setup card first (height in cm or ft/in, three set-up tips, privacy promise),
+//   then the browser's own camera permission prompt.
+// - Full-screen stage: one big instruction at a time, spoken + on screen, turning guidance
+//   (front -> side -> back -> other side), quick checks, optional live measurements panel.
+// - MediaPipe Pose Landmarker (+ person mask) runs locally in the browser. Frames are never
+//   stored or uploaded; the camera is switched off and cleared when the scan ends.
+// - The measuring maths (incl. protection against background objects) lives in measure.js.
+
+import { measureFrame, combine, ROW_KEYS } from './measure.js?v=5';
+import { recommendSize } from './profile.js?v=5';
 
 const $ = (s) => document.querySelector(s);
 const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
@@ -14,65 +16,98 @@ const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmark
 
 const BONES = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28]];
 const JOINTS = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
-const PRIOR = { shoulder: 0.238, bust: 0.514, waist: 0.406, hips: 0.56, inseam: 0.452, arm: 0.343, neck: 0.205, thigh: 0.322 };
-const DEPTH_RATIO = { neck: 0.95, bust: 0.72, waist: 0.76, hips: 0.8, thigh: 1.0 };
-const CIRC_FACTOR = { neck: 1.0, bust: 1.05, waist: 1.0, hips: 1.0, thigh: 1.0 };
-const ROW_KEYS = ['neck', 'bust', 'waist', 'hips', 'thigh'];
 const ROW_LABEL = { neck: 'Neck', bust: 'Chest', waist: 'Waist', hips: 'Hips', thigh: 'Thigh' };
-const LIVE_KEYS = [['height', 'Height'], ['shoulder', 'Shoulders'], ['bust', 'Chest / bust'], ['waist', 'Waist'], ['hips', 'Hips'], ['inseam', 'Inseam'], ['arm', 'Arm length'], ['neck', 'Neck'], ['thigh', 'Thigh']];
+const LIVE_KEYS = [['height', 'Height'], ['bust', 'Chest / bust'], ['waist', 'Waist'], ['hips', 'Hips'], ['shoulder', 'Shoulders'], ['inseam', 'Inseam'], ['arm', 'Arm length'], ['neck', 'Neck'], ['thigh', 'Thigh']];
 
 const PHASES = [
-  { id: 'ready', title: 'Get set up', sub: 'Follow the checklist — the scan starts by itself when everything is green.',
-    say: "Let's get you set up. Prop your phone or laptop at waist height, then stand about two metres back so your whole body is visible." },
-  { id: 'front', need: 'front', hold: 36, arms: true, title: 'Face the camera', sub: 'Arms slightly away from your body · feet hip-width apart · hold still',
-    say: 'Face the camera. Hold your arms slightly away from your body, feet hip width apart, and hold still.' },
-  { id: 'side1', need: 'side', hold: 30, turn: true, title: 'Turn a quarter to your left', sub: 'Your side faces the camera · arms relaxed · look straight ahead',
-    say: 'Great. Now turn a quarter to your left, so your side faces the camera. Arms relaxed by your sides. Hold still.' },
-  { id: 'back', need: 'back', hold: 24, turn: true, arms: true, title: 'Keep turning — back to the camera', sub: 'Arms slightly out again · hold still',
-    say: 'Keep turning to your left until your back faces the camera. Arms slightly out, and hold still.' },
-  { id: 'side2', need: 'side2', hold: 30, turn: true, title: 'Keep turning — show your other side', sub: 'Arms relaxed · hold still',
-    say: 'Almost done. Keep turning so your other side faces the camera, and hold still.' },
+  { id: 'ready', title: 'Step back until we see all of you', sub: 'Head to toe in the picture · about 2 m away',
+    say: 'Stand your phone up at waist height, then step back about two metres, so I can see you from head to toe.' },
+  { id: 'front', need: 'front', hold: 36, arms: true, title: 'Face the camera', sub: 'Arms a little away from your body · feet apart',
+    say: 'Face the camera. Hold your arms a little away from your body, feet apart, and stay still.' },
+  { id: 'side1', need: 'side', hold: 30, turn: true, title: 'Turn to your left', sub: 'Stop when your side faces the camera',
+    say: 'Great. Now turn to your left, and stop when your side faces the camera.' },
+  { id: 'back', need: 'back', hold: 24, turn: true, arms: true, title: 'Keep turning — back to the camera', sub: 'Arms a little out again',
+    say: 'Keep turning left until your back faces the camera. Arms a little out.' },
+  { id: 'side2', need: 'side2', hold: 30, turn: true, title: 'One more turn', sub: 'Stop when your other side faces the camera',
+    say: 'Last one. Keep turning until your other side faces the camera.' },
   { id: 'done', title: 'All done', sub: '' },
 ];
+const STEP_NAME = { front: 'Front', side1: 'Side', back: 'Back', side2: 'Other side' };
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
-const avg = (...v) => { const x = v.filter((n) => n != null && isFinite(n)); return x.length ? x.reduce((s, n) => s + n, 0) / x.length : null; };
-const ellipse = (w, d) => { const a = w / 2, b = d / 2; return Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b))); };
+const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* blocked */ } } };
 
-export function initCamera({ getHeight, setHeight, onMeasured, onSave, onStage, toast }) {
+export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, onStage, toast }) {
   /* ---------- elements ---------- */
   const camBtn = $('#camBtn');
-  const consent = $('#consentModal'), agree = $('#consentAgree'), allow = $('#consentAllow');
+  const consent = $('#consentModal'), allow = $('#consentAllow');
+  const hCm = $('#setupH'), hFt = $('#setupFt'), hIn = $('#setupIn'), hErr = $('#setupErr');
   const stage = $('#scanStage'), video = $('#ssVideo'), canvas = $('#ssCanvas'), ctx = canvas.getContext('2d');
   const titleEl = $('#ssTitle'), subEl = $('#ssSub'), ring = $('#ssRing'), pctEl = $('#ssPct'), turnEl = $('#ssTurn');
-  const skipBtn = $('#ssSkip'), voiceBtn = $('#ssVoice'), heightIn = $('#ssHeight'), liveList = $('#ssLiveList');
-  const doneEl = $('#ssDone'), resultEl = $('#ssResult'), hintEl = $('#ssHint');
+  const skipBtn = $('#ssSkip'), voiceBtn = $('#ssVoice'), liveBtn = $('#ssLiveToggle'), liveList = $('#ssLiveList');
+  const doneEl = $('#ssDone'), resultEl = $('#ssResult'), hintEl = $('#ssHint'), stepNo = $('#ssStepNo');
 
   liveList.innerHTML = LIVE_KEYS.map(([k, l]) => `<div data-k="${k}"><dt>${l}</dt><dd><b>—</b><i></i></dd></div>`).join('');
 
   /* ---------- state ---------- */
-  let stream = null, landmarker = null, raf = 0, lastT = -1, frameNo = 0;
+  let stream = null, landmarker = null, raf = 0, lastT = -1, frameNo = 0, wakeLock = null;
   let maskBuf = null, mw = 0, mh = 0;
   const tint = document.createElement('canvas'), tctx = tint.getContext('2d');
   const lightCv = document.createElement('canvas'); lightCv.width = 40; lightCv.height = 24;
   const lctx = lightCv.getContext('2d', { willReadFrequently: true });
-  let lum = 128, prevHip = null, stillCount = 0;
+  let lum = 128, prevHip = null, stillCount = 0, phoneTilt = null;
   let pi = 0, hold = 0, samples = [], phaseStart = 0, side1Dir = 0;
-  let captured = {}, liveW = {}, liveD = {}, liveLen = {};
+  let captured = {}, liveW = {}, liveD = {}, liveLen = {}, lastResult = null;
   let voiceOn = true, lastSpoken = 0, lastHint = '', hintSince = 0;
+  let unit = store.get('mirra.unit') === 'ft' ? 'ft' : 'cm';
 
-  /* ---------- consent ---------- */
-  const openConsent = () => { agree.checked = false; allow.disabled = true; consent.classList.add('open'); setTimeout(() => agree.focus(), 50); };
+  /* ---------- setup card: height (cm or ft/in) + consent ---------- */
+  function setUnit(u) {
+    unit = u; store.set('mirra.unit', u);
+    consent.querySelectorAll('[data-unit]').forEach((b) => b.classList.toggle('on', b.dataset.unit === u));
+    consent.querySelector('.h-cm').hidden = u !== 'cm';
+    consent.querySelector('.h-ft').hidden = u !== 'ft';
+    fillHeight(getHeight());
+  }
+  function fillHeight(h) {
+    hCm.value = Math.round(h);
+    const totalIn = h / 2.54;
+    let ft = Math.floor(totalIn / 12), inch = Math.round(totalIn - ft * 12);
+    if (inch === 12) { ft++; inch = 0; }
+    hFt.value = ft; hIn.value = inch;
+  }
+  function readHeight() {
+    if (unit === 'cm') return parseFloat(hCm.value);
+    const ft = parseFloat(hFt.value), inch = parseFloat(hIn.value || '0');
+    return isFinite(ft) ? (ft * 12 + (isFinite(inch) ? inch : 0)) * 2.54 : NaN;
+  }
+  consent.querySelectorAll('[data-unit]').forEach((b) => b.addEventListener('click', () => setUnit(b.dataset.unit)));
+  [hCm, hFt, hIn].forEach((el) => el.addEventListener('input', () => { hErr.textContent = ''; }));
+  $('#privacyMore').addEventListener('click', (e) => {
+    const list = $('#privacyList'); list.hidden = !list.hidden;
+    e.currentTarget.setAttribute('aria-expanded', String(!list.hidden));
+    e.currentTarget.textContent = list.hidden ? 'More' : 'Less';
+  });
+
+  const openConsent = () => { setUnit(unit); hErr.textContent = ''; consent.classList.add('open'); };
   const closeConsent = () => consent.classList.remove('open');
-  camBtn.addEventListener('click', openConsent);
-  document.querySelectorAll('[data-open-camera]').forEach((b) => b.addEventListener('click', (e) => {
-    e.preventDefault(); $('#measure').scrollIntoView({ behavior: 'smooth' }); setTimeout(openConsent, 600);
-  }));
-  agree.addEventListener('change', () => { allow.disabled = !agree.checked; });
+  camBtn?.addEventListener('click', openConsent);
+  document.querySelectorAll('[data-open-camera]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); openConsent(); }));
   consent.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', closeConsent));
   consent.addEventListener('click', (e) => { if (e.target === consent) closeConsent(); });
-  allow.addEventListener('click', () => { closeConsent(); start(); });
+  allow.addEventListener('click', () => {
+    const h = readHeight();
+    if (!(h >= 130 && h <= 215)) {
+      hErr.textContent = unit === 'cm' ? 'Please enter a height between 130 and 215 cm' : 'Please enter a height between 4 ft 3 in and 7 ft 1 in';
+      (unit === 'cm' ? hCm : hFt).focus();
+      return;
+    }
+    setHeight(h);
+    unlockSpeech(); // phones only allow speech that starts from a tap
+    closeConsent();
+    start();
+  });
   $('#saveMeasure')?.addEventListener('click', () => onSave());
 
   /* ---------- stage controls ---------- */
@@ -80,27 +115,41 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onStage, 
   $('#ssClose').addEventListener('click', closeStage);
   $('#ssAgain').addEventListener('click', () => start());
   $('#ssSaveProfile').addEventListener('click', () => { closeStage(); onSave(); });
+  $('#ssTry').addEventListener('click', () => { closeStage(); onTry && onTry(lastResult?.size?.size); });
   skipBtn.addEventListener('click', () => { capture(PHASES[pi], true); nextPhase(); });
   voiceBtn.addEventListener('click', () => {
     voiceOn = !voiceOn; voiceBtn.setAttribute('aria-pressed', voiceOn); voiceBtn.classList.toggle('on', voiceOn);
     if (!voiceOn) speechSynthesis?.cancel();
   });
-  heightIn.addEventListener('input', () => { const h = parseFloat(heightIn.value); if (h >= 130 && h <= 215) setHeight(h); });
+  const setLive = (on) => { stage.classList.toggle('show-live', on); liveBtn.classList.toggle('on', on); liveBtn.setAttribute('aria-pressed', on); };
+  liveBtn.addEventListener('click', () => setLive(!stage.classList.contains('show-live')));
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && stage.classList.contains('open')) { stopCamera(); closeStage(); } });
 
+  function unlockSpeech() {
+    try { if ('speechSynthesis' in window) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } } catch { /* ignore */ }
+  }
   function speak(text, force) {
     if (!voiceOn || !('speechSynthesis' in window) || !text) return;
     const now = performance.now();
     if (!force && now - lastSpoken < 6500) return;
     lastSpoken = now;
     speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text); u.rate = 1.02; u.lang = 'en-US';
+    const u = new SpeechSynthesisUtterance(text); u.rate = 1.0; u.lang = 'en-US';
     speechSynthesis.speak(u);
   }
+
+  // phone tilt (Android/desktop give this without a prompt; we never trigger the iOS motion prompt)
+  const onOrient = (e) => {
+    if (e.beta == null) return;
+    const landscape = Math.abs(screen.orientation?.angle ?? window.orientation ?? 0) === 90;
+    phoneTilt = landscape ? 90 - Math.abs(e.gamma) : Math.abs(e.beta - 90);
+  };
+  const needsMotionPrompt = typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function';
 
   function openStage() {
     stage.classList.add('open'); document.body.classList.add('scan-open');
     doneEl.hidden = true; stage.dataset.phase = 'ready';
+    setLive(innerWidth >= 900);
     onStage && onStage(true);
   }
   function closeStage() {
@@ -111,25 +160,27 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onStage, 
 
   /* ---------- start ---------- */
   async function start() {
-    heightIn.value = Math.round(getHeight());
     resetScan();
     openStage();
-    setGuide('Waiting for camera permission…', 'Your browser is asking to use the camera — choose Allow.');
+    setGuide('Waiting for the camera…', 'Your phone is asking to use the camera — tap Allow.');
     if (!navigator.mediaDevices?.getUserMedia) {
-      setGuide('Camera not available here', 'Open this page in Chrome, Edge or Safari on localhost or https.');
+      setGuide('Camera not available here', 'Open this page in Chrome or Safari (it needs a secure https link).');
       return;
     }
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
     } catch (e) {
       stream = null;
-      setGuide(e && e.name === 'NotAllowedError' ? 'Camera permission was declined' : 'No camera found',
-        e && e.name === 'NotAllowedError' ? 'Nothing was captured. Allow the camera in the address bar to try again.' : 'Connect a camera or close other apps that are using it.');
+      const denied = e && e.name === 'NotAllowedError';
+      setGuide(denied ? 'Camera permission was declined' : 'No camera found',
+        denied ? 'Nothing was captured. Allow the camera in your browser settings and try again.' : 'Close other apps that are using the camera and try again.');
       return;
     }
     video.srcObject = stream;
     await video.play().catch(() => {});
-    setGuide('Loading body tracker…', 'About 10 MB the first time, then it is cached.');
+    keepAwake();
+    if (!needsMotionPrompt) addEventListener('deviceorientation', onOrient);
+    setGuide('Getting ready…', 'Loading the body tracker — a few seconds the first time.');
     try { landmarker = landmarker || (await loadLandmarker()); }
     catch (e) {
       console.warn('Pose model failed to load', e);
@@ -141,6 +192,10 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onStage, 
     loop();
   }
 
+  async function keepAwake() {
+    try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; }
+  }
+
   async function loadLandmarker() {
     const vision = await import(`${VISION_URL}/vision_bundle.mjs`);
     const files = await vision.FilesetResolver.forVisionTasks(`${VISION_URL}/wasm`);
@@ -150,17 +205,18 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onStage, 
   }
 
   function resetScan() {
-    pi = 0; hold = 0; samples = []; side1Dir = 0; captured = {}; liveW = {}; liveD = {}; liveLen = {};
-    prevHip = null; stillCount = 0; frameNo = 0; lastT = -1; lastHint = '';
+    pi = 0; hold = 0; samples = []; side1Dir = 0; captured = {}; liveW = {}; liveD = {}; liveLen = {}; lastResult = null;
+    prevHip = null; stillCount = 0; frameNo = 0; lastT = -1; lastHint = ''; phoneTilt = null;
     liveList.querySelectorAll('[data-k]').forEach((r) => { r.className = ''; r.querySelector('b').textContent = '—'; });
-    stage.querySelectorAll('.ss-steps li').forEach((li) => li.classList.remove('done', 'active'));
+    stage.querySelectorAll('.ss-dots li').forEach((li) => li.classList.remove('done', 'active'));
   }
 
   function enterPhase(i) {
     pi = i; hold = 0; samples = []; phaseStart = performance.now();
     const ph = PHASES[i];
     stage.dataset.phase = ph.id;
-    stage.querySelectorAll('.ss-steps li').forEach((li, k) => { li.classList.toggle('done', k < i); li.classList.toggle('active', k === i); });
+    stage.querySelectorAll('.ss-dots li').forEach((li, k) => { li.classList.toggle('done', k + 1 < i); li.classList.toggle('active', k + 1 === i); });
+    stepNo.textContent = i === 0 ? 'Getting ready' : `Step ${i} of 4 · ${STEP_NAME[ph.id]}`;
     setGuide(ph.title, ph.sub);
     setRing(0);
     skipBtn.hidden = true;
@@ -172,7 +228,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onStage, 
   }
 
   function setGuide(t, s) { titleEl.textContent = t; subEl.textContent = s || ''; }
-  function setRing(p) { ring.style.setProperty('--p', Math.round(p * 100)); pctEl.textContent = p > 0 ? `${Math.round(p * 100)}%` : ''; }
+  function setRing(p) { ring.style.setProperty('--p', Math.round(Math.min(1, p) * 100)); pctEl.textContent = p > 0 ? `${Math.round(Math.min(1, p) * 100)}%` : ''; }
   function setHint(text) {
     hintEl.textContent = text || '';
     hintEl.classList.toggle('show', !!text);
@@ -216,124 +272,30 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onStage, 
     } catch { /* ignore */ }
   }
 
-  /* ---------- mask helpers ---------- */
-  function extent(cxN) {
-    const c0 = Math.max(0, Math.round((cxN - 0.07) * mw)), c1 = Math.min(mw - 1, Math.round((cxN + 0.07) * mw));
-    let top = -1, bot = -1;
-    for (let y = 0; y < mh; y += 2) {
-      const o = y * mw;
-      for (let x = c0; x <= c1; x += 2) if (maskBuf[o + x] > 0.5) { if (top < 0) top = y; bot = y; break; }
-    }
-    return top < 0 ? null : { top: top / mh, bottom: Math.min(1, (bot + 2) / mh) };
-  }
-  function run(yN, cxN) {
-    if (!(yN > 0 && yN < 1)) return null;
-    const yc = Math.round(yN * (mh - 1));
-    let sum = 0, L = 0, R = 0, n = 0;
-    for (let dy = -2; dy <= 2; dy++) {
-      const y = yc + dy; if (y < 0 || y >= mh) continue;
-      const o = y * mw;
-      let c = Math.round(Math.min(1, Math.max(0, cxN)) * (mw - 1));
-      if (maskBuf[o + c] < 0.5) {
-        let f = -1; const lim = Math.round(mw * 0.03);
-        for (let d = 1; d <= lim; d++) {
-          if (c + d < mw && maskBuf[o + c + d] >= 0.5) { f = c + d; break; }
-          if (c - d >= 0 && maskBuf[o + c - d] >= 0.5) { f = c - d; break; }
-        }
-        if (f < 0) continue; c = f;
-      }
-      let l = c, r = c;
-      while (l > 0 && maskBuf[o + l - 1] >= 0.5) l--;
-      while (r < mw - 1 && maskBuf[o + r + 1] >= 0.5) r++;
-      sum += r - l + 1; L += l; R += r + 1; n++;
-    }
-    return n ? { w: sum / n / mw, l: L / n / mw, r: R / n / mw, y: yN } : null;
-  }
-  function crotchY(cxN, bottomN, hipN) {
-    const c = Math.round(cxN * (mw - 1));
-    let y = Math.min(mh - 1, Math.round(bottomN * mh) - 3);
-    if (maskBuf[y * mw + c] >= 0.5) return null; // legs together: no gap to find
-    const stop = Math.round(hipN * mh);
-    while (y > stop && maskBuf[y * mw + c] < 0.5) y--;
-    return y <= stop ? null : y / mh;
-  }
-
   /* ---------- analysis ---------- */
   function analyse(lm) {
-    const f = { present: !!lm, checks: {}, runs: {}, cm: null };
     const H = getHeight();
-    f.checks.height = H >= 130 && H <= 215;
-    // a white wall is fine; only flag clearly dark or blown-out frames
-    f.checks.light = lum > 45 && lum < 248;
-    f.lightHint = lum <= 45 ? 'Too dark — switch on a light in front of you' : lum >= 248 ? 'Too bright — avoid standing in front of a window' : '';
-    if (!lm || !maskBuf) { f.checks.body = false; f.checks.distance = false; f.checks.still = false; f.checks.arms = false; return f; }
-
-    const vw = video.videoWidth, vh = video.videoHeight;
-    const vis = (i) => lm[i].visibility > 0.5;
-    const sx = (lm[11].x + lm[12].x) / 2, sy = (lm[11].y + lm[12].y) / 2;
-    const hx = (lm[23].x + lm[24].x) / 2, hy = (lm[23].y + lm[24].y) / 2;
-    const T = hy - sy;
-    const swN = Math.abs(lm[11].x - lm[12].x);
-    const ratio = (swN * vw) / Math.max(1, Math.abs(T) * vh);
-    // facing the camera: face visible and the person's left shoulder (11) on the image's right
-    const faceVis = Math.max(lm[0].visibility, lm[2].visibility, lm[5].visibility);
-    f.orient = ratio < 0.42 ? 'side' : ratio > 0.58 ? (lm[11].x > lm[12].x && faceVis > 0.5 ? 'front' : 'back') : 'turning';
-    f.dir = lm[0].x > hx ? 1 : -1;
-
-    const ext = extent(hx);
-    f.ext = ext;
-    const frac = ext ? ext.bottom - ext.top : 0;
-    f.checks.body = !!ext && ext.top > 0.012 && ext.bottom < 0.988 && (vis(27) || vis(28)) && (vis(11) || vis(12));
-    f.checks.distance = frac >= 0.5 && frac <= 0.93;
-    f.bodyHint = !ext ? 'Step into the frame' : ext.top <= 0.012 ? 'Your head is cut off — step back or tilt the camera up'
-      : ext.bottom >= 0.988 || !(vis(27) || vis(28)) ? 'Your feet are cut off — step back a little' : '';
-    f.distHint = frac > 0.93 ? 'Step back a little' : frac < 0.5 ? 'Come a bit closer' : '';
-
-    const wristOut = (w, h) => Math.abs(lm[w].x - lm[h].x) > 0.28 * swN && lm[w].y > sy;
-    f.checks.arms = wristOut(15, 23) && wristOut(16, 24);
-
-    if (prevHip) {
-      const mv = Math.hypot(hx - prevHip.x, hy - prevHip.y);
-      stillCount = mv < 0.006 ? stillCount + 1 : 0;
+    const light = lum > 45 && lum < 248;
+    const lightHint = lum <= 45 ? 'Too dark — switch on a light in front of you' : lum >= 248 ? 'Too bright — don’t stand in front of a window' : '';
+    if (!lm || !maskBuf) {
+      prevHip = null; stillCount = 0;
+      return { present: false, runs: {}, cm: null, checks: { height: true, light, body: false, distance: false, still: false, arms: false, upright: true, background: true }, lightHint };
     }
+    const f = measureFrame(lm, maskBuf, { mw, mh, vw: video.videoWidth, vh: video.videoHeight, height: H });
+    f.present = true;
+    f.lightHint = lightHint;
+    f.checks.height = H >= 130 && H <= 215;
+    f.checks.light = light;
+    // phone leaning a lot (from the phone's own motion sensor, where available)
+    const phoneOk = phoneTilt == null || phoneTilt < 22;
+    f.uprightHint = !phoneOk ? 'Stand your phone up straight — it is leaning'
+      : !f.checks.upright ? 'Your phone looks tilted — straighten it so you stand upright on screen' : '';
+    f.checks.upright = f.checks.upright && phoneOk;
+
+    const hx = (lm[23].x + lm[24].x) / 2, hy = (lm[23].y + lm[24].y) / 2;
+    if (prevHip) stillCount = Math.hypot(hx - prevHip.x, hy - prevHip.y) < 0.006 ? stillCount + 1 : 0;
     prevHip = { x: hx, y: hy };
     f.checks.still = stillCount >= 3;
-    if (!ext || !f.checks.height) return f;
-
-    // scale: entered height over silhouette height in pixels
-    const statPx = frac * vh;
-    const cmPx = H / statPx;
-    const isSide = f.orient === 'side';
-    const mouthY = (lm[9].y + lm[10].y) / 2;
-    const kneeY = (lm[25].y + lm[26].y) / 2;
-    const earX = avg(vis(7) ? lm[7].x : null, vis(8) ? lm[8].x : null) ?? sx;
-    const rows = {
-      neck: [mouthY + 0.4 * (sy - mouthY), isSide ? lerp(earX, sx, 0.6) : sx],
-      bust: [sy + 0.3 * T, lerp(sx, hx, 0.3)],
-      waist: [sy + 0.64 * T, lerp(sx, hx, 0.64)],
-      hips: [hy + 0.06 * T, hx],
-      thigh: [hy + 0.3 * (kneeY - hy), isSide ? hx : lerp(lm[23].x, lm[25].x, 0.3)],
-    };
-    const cm = {};
-    for (const k of ROW_KEYS) {
-      const r = run(rows[k][0], rows[k][1]);
-      if (r) { f.runs[k] = r; cm[k] = r.w * vw * cmPx; }
-    }
-    if (!isSide) {
-      // arms touching the torso make the chest/waist silhouette too wide
-      const merged = f.runs.bust && f.runs.bust.w > 1.25 * swN;
-      if (merged) { f.checks.arms = false; delete cm.bust; delete cm.waist; }
-      // legs touching: the thigh run spans both legs
-      if (cm.thigh && cm.hips && cm.thigh > 0.62 * cm.hips) { delete cm.thigh; f.legsTogether = true; }
-      const d = (a, b) => Math.hypot((lm[a].x - lm[b].x) * vw, (lm[a].y - lm[b].y) * vh);
-      cm.shoulder = swN * vw * cmPx * 1.18;
-      cm.arm = ((d(11, 13) + d(13, 15) + d(12, 14) + d(14, 16)) / 2) * cmPx * 1.05;
-      const ankleY = (lm[27].y + lm[28].y) / 2;
-      let cy = crotchY(hx, ext.bottom, hy);
-      if (cy == null || cy > hy + 0.35 * (ankleY - hy)) cy = hy + 0.1 * (ankleY - hy);
-      cm.inseam = (ext.bottom - cy) * vh * cmPx;
-    }
-    f.cm = cm;
     return f;
   }
 
@@ -341,10 +303,10 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onStage, 
   function step(f) {
     const ph = PHASES[pi];
     if (!ph || ph.id === 'done') return;
-    const envOk = f.checks.height && f.checks.body && f.checks.distance && f.checks.light;
-    const envHint = !f.checks.height ? 'Enter your height so we can scale your measurements'
-      : !f.present ? 'Step into the frame — we can’t see you yet'
-      : f.bodyHint || f.distHint || f.lightHint;
+    const c = f.checks;
+    const envOk = c.height && c.body && c.distance && c.light && c.upright && c.background;
+    const envHint = !f.present ? 'Step into the picture — we can’t see you yet'
+      : f.bodyHint || f.distHint || f.uprightHint || f.bgHint || f.lightHint;
 
     // keep live readouts moving even before capture
     if (f.cm && envOk) {
@@ -358,10 +320,10 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onStage, 
     }
 
     if (ph.id === 'ready') {
-      const ok = envOk && f.checks.still;
+      const ok = envOk && c.still;
       hold = ok ? hold + 1 : Math.max(0, hold - 1);
       setRing(hold / 30);
-      setHint(ok ? '' : envHint || (!f.checks.still ? 'Stand still for a moment' : ''));
+      setHint(ok ? '' : envHint || (!c.still ? 'Stand still for a moment' : ''));
       if (hold >= 30) nextPhase();
       return;
     }
@@ -372,53 +334,38 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onStage, 
     else if (ph.need === 'side') match = f.orient === 'side';
     else if (ph.need === 'side2') match = f.orient === 'side' && (side1Dir === 0 || f.dir !== side1Dir || performance.now() - phaseStart > 9000);
 
-    const ok = match && envOk && (!ph.arms || f.checks.arms) && f.checks.still && f.cm;
+    const ok = match && envOk && (!ph.arms || c.arms) && c.still && f.cm;
     if (ok) { hold++; samples.push(f.cm); } else hold = Math.max(0, hold - 1);
-    if (ph.need === 'side' && match && f.checks.still) side1Dir = f.dir;
+    if (ph.need === 'side' && match && c.still) side1Dir = f.dir;
     setRing(hold / ph.hold);
     turnEl.classList.toggle('show', !!ph.turn && !match);
 
     let hint = '';
     if (!match) hint = f.orient === 'turning' ? 'Keep turning slowly…' : ph.title;
     else if (!envOk) hint = envHint;
-    else if (ph.arms && !f.checks.arms) hint = 'Move your arms out so they don’t touch your body';
-    else if (ph.arms && f.legsTogether) hint = 'Stand with your feet hip-width apart';
-    else if (!f.checks.still) hint = 'Hold still…';
+    else if (ph.arms && !c.arms) hint = 'Move your arms out a little so they don’t touch your body';
+    else if (ph.arms && f.legsTogether) hint = 'Stand with your feet apart';
+    else if (!c.still) hint = 'Hold still…';
     setHint(hint);
-    setGuide(ok ? 'Hold still — measuring' : ph.title, ph.sub);
+    setGuide(ok ? 'Hold still…' : ph.title, ok ? 'Measuring — don’t move' : ph.sub);
 
     if (performance.now() - phaseStart > 15000) skipBtn.hidden = false;
     if (hold >= ph.hold) { capture(ph, false); nextPhase(); }
   }
 
   function capture(ph, skipped) {
+    // a skipped step still keeps whatever good frames it collected
+    const usable = !skipped || samples.length >= 6;
     const take = (k) => median(samples.map((s) => s[k]).filter((v) => v != null));
     const got = {};
-    for (const k of [...ROW_KEYS, 'shoulder', 'arm', 'inseam']) { const v = take(k); if (v != null) got[k] = v; }
-    captured[ph.id] = skipped ? { skipped: true } : got;
-    if (ph.id === 'side1' && !skipped) side1Dir = side1Dir || 1;
+    if (usable) for (const k of [...ROW_KEYS, 'shoulder', 'arm', 'inseam']) { const v = take(k); if (v != null) got[k] = v; }
+    captured[ph.id] = usable && Object.keys(got).length ? got : { skipped: true };
+    if (ph.id === 'side1' && usable) side1Dir = side1Dir || 1;
     if (!skipped) speak(ph.id === 'front' ? 'Got it.' : 'Nice.', true);
   }
 
   function compute(final) {
-    const H = getHeight();
-    const fr = captured.front || {}, bk = captured.back || {}, s1 = captured.side1 || {}, s2 = captured.side2 || {};
-    const clampP = (k, v) => (v == null ? null : Math.min(H * PRIOR[k] * 1.3, Math.max(H * PRIOR[k] * 0.7, v)));
-    const out = { height: H };
-    const state = { height: 'ok' };
-    for (const k of ROW_KEYS) {
-      const w = avg(fr[k], bk[k]) ?? (final ? null : liveW[k]);
-      const dCap = avg(s1[k], s2[k]);
-      const d = dCap ?? (final ? null : liveD[k]) ?? (w ? w * DEPTH_RATIO[k] : null);
-      out[k] = w ? clampP(k, ellipse(w, d) * CIRC_FACTOR[k]) : (final ? H * PRIOR[k] : null);
-      state[k] = (fr[k] || bk[k]) && dCap ? 'ok' : w ? 'est' : '';
-    }
-    for (const k of ['shoulder', 'arm', 'inseam']) {
-      const v = fr[k] ?? bk[k] ?? (final ? null : liveLen[k]);
-      out[k] = v ? clampP(k, v) : (final ? H * PRIOR[k] : null);
-      state[k] = fr[k] || bk[k] ? 'ok' : v ? 'est' : '';
-    }
-    return { out, state };
+    return combine({ height: getHeight(), front: captured.front, back: captured.back, side1: captured.side1, side2: captured.side2, liveW, liveD, liveLen, final });
   }
 
   function renderLive() {
@@ -438,12 +385,11 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onStage, 
       li.classList.toggle('ok', !!ok); li.classList.toggle('bad', !ok);
       const em = li.querySelector('em'); if (em) em.textContent = ok ? '' : hint || '';
     };
-    const armsRelevant = !!PHASES[pi]?.arms || PHASES[pi]?.id === 'ready';
-    set('height', f.checks.height, 'Enter 130–215 cm');
     set('body', f.checks.body, f.bodyHint || 'Step into view');
     set('distance', f.checks.distance, f.distHint || 'Stand about 2 m away');
+    set('upright', f.checks.upright, f.uprightHint);
+    set('background', f.checks.background, f.bgHint);
     set('light', f.checks.light, f.lightHint);
-    set('arms', armsRelevant ? f.checks.arms : true, 'Arms slightly out to the sides');
     set('still', f.checks.still, 'Hold still');
   }
 
@@ -498,18 +444,20 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onStage, 
     for (const i of JOINTS) { if (!ok(i)) continue; const [x, y] = M(lm[i].x, lm[i].y); ctx.beginPath(); ctx.arc(x, y, 3.6, 0, Math.PI * 2); ctx.fill(); }
     ctx.shadowBlur = 0;
 
-    // live measurement lines across the silhouette
+    // live measurement lines across the silhouette (red = blocked by something behind you)
     const { out } = compute(false);
     const side = f.orient === 'side';
+    const showText = stage.classList.contains('show-live');
     for (const k of ROW_KEYS) {
       const r = f.runs[k]; if (!r) continue;
+      const blocked = r.bled && f.bgBleed?.includes(k);
       const [xa, y] = M(r.l, r.y), [xb] = M(r.r, r.y);
-      ctx.strokeStyle = '#e2c08d'; ctx.lineWidth = 1.6; ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = blocked ? '#ff6f7d' : '#e2c08d'; ctx.lineWidth = 1.6; ctx.setLineDash([6, 4]);
       ctx.beginPath(); ctx.moveTo(xa, y); ctx.lineTo(xb, y); ctx.stroke(); ctx.setLineDash([]);
       ctx.beginPath(); ctx.moveTo(xa, y - 6); ctx.lineTo(xa, y + 6); ctx.moveTo(xb, y - 6); ctx.lineTo(xb, y + 6); ctx.stroke();
-      const val = out[k] ? `${ROW_LABEL[k]} ${out[k].toFixed(1)} cm` : ROW_LABEL[k];
-      const extra = f.cm?.[k] ? ` · ${side ? 'depth' : 'width'} ${f.cm[k].toFixed(1)}` : '';
-      // xa is the body's right edge on screen (canvas mirrored)
+      if (!showText && !blocked) continue;
+      const val = blocked ? `${ROW_LABEL[k]} · blocked` : out[k] ? `${ROW_LABEL[k]} ${out[k].toFixed(1)} cm` : ROW_LABEL[k];
+      const extra = !blocked && f.cm?.[k] ? ` · ${side ? 'depth' : 'width'} ${f.cm[k].toFixed(1)}` : '';
       label(Math.min(xa, xb) - 12, y, val + extra, 'start');
     }
   }
@@ -520,14 +468,24 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onStage, 
     const result = Object.fromEntries(Object.entries(out).map(([k, v]) => [k, Math.round(v * 10) / 10]));
     stopCamera();
     stage.dataset.phase = 'done';
-    stage.querySelectorAll('.ss-steps li').forEach((li) => { li.classList.add('done'); li.classList.remove('active'); });
+    stage.querySelectorAll('.ss-dots li').forEach((li) => { li.classList.add('done'); li.classList.remove('active'); });
+    stepNo.textContent = 'Done';
+    const size = recommendSize(result);
+    lastResult = { result, size };
+    // only claim a measured size when the front or back view really captured chest and hips
+    const fb = [captured.front, captured.back].filter((c) => c && !c.skipped);
+    const measured = fb.some((c) => c.bust) && fb.some((c) => c.hips);
+    $('#ssSize').innerHTML = !size ? '<small>Your measurements</small>'
+      : measured ? `<small>Your size</small><b>${size.size}</b><span>EU ${size.eu} · based on your chest, waist and hips</span>`
+      : `<small>Estimated size</small><b>${size.size}</b><span>EU ${size.eu} · guessed from your height only — scan again with your arms a little out for your real size</span>`;
+    $('#ssTry').textContent = size ? `Try dresses in size ${size.size}` : 'Try dresses';
     resultEl.innerHTML = LIVE_KEYS.map(([k, l]) => `<div><dt>${l}</dt><dd>${result[k].toFixed(1)}<span>cm</span></dd></div>`).join('');
     const skippedAny = Object.values(captured).some((c) => c.skipped);
     $('#ssDoneNote').textContent = skippedAny
-      ? 'Some steps were skipped, so a few values are estimated from body proportions.'
-      : 'Estimates from your silhouette — re-scan in fitted clothes for best results.';
+      ? 'Some steps were skipped, so a few numbers are estimated from your height.'
+      : 'These are estimates from your outline. For the best result, scan in fitted clothes.';
     doneEl.hidden = false;
-    speak('All done. Your camera is now off, and no pictures were saved.', true);
+    speak(size ? `All done. Your size is ${size.size}. Your camera is now off, and no pictures were saved.` : 'All done. Your camera is now off, and no pictures were saved.', true);
     onMeasured(result);
   }
 
@@ -541,10 +499,14 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onStage, 
     if (maskBuf) maskBuf.fill(0);
     maskBuf = null; tint.width = tint.height = 1;
     lctx.clearRect(0, 0, 40, 24);
+    removeEventListener('deviceorientation', onOrient);
+    wakeLock?.release?.().catch?.(() => {}); wakeLock = null;
     turnEl.classList.remove('show'); setHint('');
   }
 
   // never leave the camera running in the background
-  document.addEventListener('visibilitychange', () => { if (document.hidden && stream) { stopCamera(); setGuide('Scan paused', 'The camera turned off because you left the tab. Nothing was saved.'); } });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && stream) { stopCamera(); setGuide('Scan paused', 'The camera turned off because you left the page. Nothing was saved. Tap ✕ Stop, then start again.'); }
+  });
   addEventListener('pagehide', () => { if (stream) stopCamera(); });
 }
