@@ -1,6 +1,7 @@
-import { STYLES, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=12';
-import { initCamera } from './camera.js?v=12';
-import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=12';
+import { STYLES, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=15';
+import { initCamera } from './camera.js?v=15';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=15';
+import { initMirror } from './mirror.js?v=15';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -50,7 +51,7 @@ const studioLook = lookFor('shalwar');
 let collection = 'pk';
 let scene = null;
 
-import('./scene.js?v=12')
+import('./scene.js?v=15')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();
@@ -75,6 +76,9 @@ function observeStates() {
   });
   els.forEach((el) => any.observe(el));
 }
+
+/* ---------------- live mirror (try it on yourself) ---------------- */
+const mirror = initMirror({ onStage: (open) => scene?.setActive(!open), toast });
 
 /* ---------------- studio controls ---------------- */
 function buildStudio() {
@@ -112,7 +116,15 @@ function buildStudio() {
     scene?.setHeatmap(e.target.checked);
     $('#heatLegend').classList.toggle('show', e.target.checked);
   });
-  $('#saveLook').addEventListener('click', () => toast(`Saved “${STYLES[studioLook.style].label}” to your wardrobe`));
+  $('#tryOnMe').addEventListener('click', () => mirror.open({ ...studioLook }));
+
+  // first screen: three real looks; tap one to try it on yourself
+  $('#heroPhotos').innerHTML = ['shalwar', 'anarkali', 'gown'].map((k) => `<figure data-hero-look="${k}" tabindex="0" role="button" aria-label="Try the ${STYLES[k].label} on yourself">
+      <img src="${photoUrl(k, 560)}" alt="${PHOTOS[k].alt}" decoding="async">
+      <span class="try-pill">Try it on me</span>
+      <figcaption><small>${COLLECTIONS[STYLES[k].region].label}</small><b>${STYLES[k].label}</b></figcaption></figure>`).join('');
+  $('#heroPhotos').addEventListener('click', (e) => { const f = e.target.closest('[data-hero-look]'); if (f) mirror.open(lookFor(f.dataset.heroLook)); });
+  $('#heroPhotos').addEventListener('keydown', (e) => { const f = e.target.closest('[data-hero-look]'); if (f && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); mirror.open(lookFor(f.dataset.heroLook)); } });
   $('#randomLook').addEventListener('click', () => {
     const pick = (o) => { const k = Object.keys(o); return k[Math.floor(Math.random() * k.length)]; };
     let next;
@@ -281,7 +293,7 @@ setInterval(() => {
   $('#scanPct').textContent = `${pct}%`;
   cue.textContent = [...CUES].reverse().find(([p]) => pct >= p)[1];
   $$('.p-tag').forEach((t) => t.classList.toggle('on', pct >= +t.dataset.at));
-  if (pct === 100) { cue.textContent = '✓ 24 measurements captured'; cue.classList.add('done'); $('#scanStatus').textContent = 'Complete'; done = 40; }
+  if (pct === 100) { cue.textContent = '✓ 9 measurements captured'; cue.classList.add('done'); $('#scanStatus').textContent = 'Complete'; done = 40; }
 }, 70);
 
 /* ---------------- real camera + profile ---------------- */

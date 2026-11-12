@@ -1,10 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { STYLES, FABRICS, COLORS, SIZES, LOOKBOOK, lookFor } from './catalog.js?v=12';
+import { STYLES, FABRICS, COLORS, SIZES, LOOKBOOK, lookFor } from './catalog.js?v=15';
 
 /* ------------------------------------------------------------------ helpers */
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -504,21 +500,22 @@ class Garment {
 /* ------------------------------------------------------------------- scene */
 export function createScene({ canvas, labelsEl, onReady, studioLook }) {
   const isNarrow = () => innerWidth / innerHeight < 1.0 || innerWidth < 820;
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+  renderer.setClearColor(0x000000, 0);
   if (!renderer.getContext()) throw new Error('WebGL unavailable');
   const DPR = Math.min(window.devicePixelRatio || 1, innerWidth < 820 ? 1.5 : 2);
   renderer.setPixelRatio(DPR);
   renderer.setSize(innerWidth, innerHeight, false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.92;
+  renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.localClippingEnabled = true;
 
   const scene = new THREE.Scene();
-  const BG = new THREE.Color('#0b0a0f');
-  scene.background = BG;
+  const BG = new THREE.Color('#f6f1ea');
+  scene.background = null; // transparent canvas: the page's paper colour shows through
   scene.fog = new THREE.Fog(BG, 7, 16);
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
@@ -527,7 +524,7 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
   camera.position.set(0, 0.25, 5.6);
 
   /* lights */
-  scene.add(new THREE.HemisphereLight(0xc4b8ff, 0x1a1410, 0.45));
+  scene.add(new THREE.HemisphereLight(0xfff6ea, 0xd9cdbd, 1.1));
   const key = new THREE.SpotLight(0xffe4c4, 42, 0, Math.PI / 6.5, 0.7, 2);
   key.position.set(-2.4, 3.6, 3.4);
   key.castShadow = true;
@@ -535,14 +532,14 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
   key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02;
   key.shadow.camera.near = 1; key.shadow.camera.far = 12;
   scene.add(key, key.target);
-  const rimV = new THREE.DirectionalLight(0x8f7bff, 2.6); rimV.position.set(2.8, 1.6, -3); scene.add(rimV);
-  const rimW = new THREE.DirectionalLight(0xffb38a, 1.8); rimW.position.set(-3, 0.6, -2.6); scene.add(rimW);
+  const rimV = new THREE.DirectionalLight(0xfff1e0, 1.2); rimV.position.set(2.8, 1.6, -3); scene.add(rimV);
+  const rimW = new THREE.DirectionalLight(0xffd9bf, 1.0); rimW.position.set(-3, 0.6, -2.6); scene.add(rimW);
   const fill = new THREE.DirectionalLight(0xffffff, 0.35); fill.position.set(0.5, 1, 5); scene.add(fill);
 
   /* backdrop glow */
   const glowMat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false,
-    uniforms: { uC1: { value: new THREE.Color('#4b3cc4') }, uC2: { value: new THREE.Color('#b9744a') }, uT: { value: 0 } },
+    uniforms: { uC1: { value: new THREE.Color('#efc7ab') }, uC2: { value: new THREE.Color('#ead9b5') }, uT: { value: 0 } },
     vertexShader: 'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }',
     fragmentShader: `varying vec2 vUv; uniform vec3 uC1; uniform vec3 uC2; uniform float uT;
       void main(){ vec2 p=vUv-.5; float d=length(p*vec2(1.,1.25)); float a=smoothstep(.5,.0,d);
@@ -567,7 +564,7 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
   }
   const bodyBump = weave.clone(); bodyBump.repeat.set(56, 34); bodyBump.needsUpdate = true;
   const bodyMat = new THREE.MeshPhysicalMaterial({
-    color: '#cbc1b2', roughness: 0.82, sheen: 0.45, sheenRoughness: 0.6, sheenColor: new THREE.Color('#fff2e2'),
+    color: '#c4b6a2', roughness: 0.82, sheen: 0.45, sheenRoughness: 0.6, sheenColor: new THREE.Color('#fff2e2'),
     bumpMap: bodyBump, bumpScale: 0.8, envMapIntensity: 0.3,
   });
   const body = new THREE.Mesh(bodyGeo, bodyMat);
@@ -592,18 +589,18 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
   addMesh(new THREE.CylinderGeometry(0.032, 0.032, 0.07, 32), brass, -0.55);
   addMesh(new THREE.CylinderGeometry(0.24, 0.28, 0.045, 64), darkMetal, -1.15 + 0.0225);
 
-  const platMat = new THREE.MeshPhysicalMaterial({ color: '#0a090d', roughness: 0.3, metalness: 0.2, clearcoat: 1, clearcoatRoughness: 0.2, envMapIntensity: 0.18 });
+  const platMat = new THREE.MeshPhysicalMaterial({ color: '#e4d8c8', roughness: 0.55, metalness: 0, clearcoat: 0.25, clearcoatRoughness: 0.5, envMapIntensity: 0.35 });
   const plat = new THREE.Mesh(new THREE.CylinderGeometry(1.25, 1.3, 0.06, 120), platMat);
   plat.position.y = -1.18; plat.receiveShadow = true; rig.add(plat);
   const ringGeo = new THREE.TorusGeometry(1, 0.006, 6, 220);
-  const edge = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color('#e2c08d').multiplyScalar(2.2), toneMapped: false }));
+  const edge = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color('#b98a4b'), toneMapped: false }));
   edge.rotation.x = Math.PI / 2; edge.scale.set(1.255, 1.255, 1); edge.position.y = -1.15; rig.add(edge);
-  const inner = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color('#9d8cff').multiplyScalar(0.9), toneMapped: false, transparent: true, opacity: 0.6 }));
+  const inner = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color('#cdbba3'), toneMapped: false, transparent: true, opacity: 0.6 }));
   inner.rotation.x = Math.PI / 2; inner.scale.set(0.82, 0.82, 0.6); inner.position.y = -1.149; rig.add(inner);
 
   /* scan visuals */
   const haloMat = (hex) => new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
     uniforms: { uO: { value: 0 }, uC: { value: new THREE.Color(hex) } },
     vertexShader: 'varying float vR; void main(){ vR=length(position.xy); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }',
     fragmentShader: 'varying float vR; uniform float uO; uniform vec3 uC; void main(){ float a=smoothstep(1.55,1.0,vR)*smoothstep(0.97,1.01,vR); gl_FragColor=vec4(uC*1.6, a*.55*uO); }',
@@ -618,8 +615,8 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
     g.visible = false;
     return g;
   };
-  const scanRing = makeScanRing('#a99bff', 3);
-  const sweepRing = makeScanRing('#f1d3a3', 3.2);
+  const scanRing = makeScanRing('#7d2438', 1);
+  const sweepRing = makeScanRing('#b98a4b', 1);
   const placeRing = (g, y, r, o) => {
     const rx = r * (1 + 0.42 * bump(y, 0.8, 0.985)) + 0.012;
     const rz = r * 0.74 * (1 + 0.06 * bump(y, 0.6, 0.82)) + 0.012;
@@ -636,11 +633,11 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
     for (let k = 0; k < p.count; k++) { const x = p.getX(k), y = p.getY(k), z = p.getZ(k); const l = Math.hypot(x, z) || 1; shapeXZ(x + (x / l) * 0.006, y, z + (z / l) * 0.006, o); p.setXYZ(k, o.x, o.y, o.z); }
   }
   const scanPtsMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    uniforms: { uScanY: { value: 0.5 }, uO: { value: 0 }, uC: { value: new THREE.Color('#b3a6ff') }, uSize: { value: 18 * DPR } },
+    transparent: true, depthWrite: false,
+    uniforms: { uScanY: { value: 0.5 }, uO: { value: 0 }, uC: { value: new THREE.Color('#7d2438') }, uSize: { value: 18 * DPR } },
     vertexShader: `uniform float uScanY; uniform float uO; uniform float uSize; varying float vA;
       void main(){ vec4 wp=modelMatrix*vec4(position,1.); float d=wp.y-uScanY; float band=exp(-d*d/.0016);
-      vA=(band*.9+.035)*uO; vec4 mv=viewMatrix*wp; gl_PointSize=uSize*(1.+band*1.6)/-mv.z; gl_Position=projectionMatrix*mv; }`,
+      vA=(band*.9+.12)*uO; vec4 mv=viewMatrix*wp; gl_PointSize=uSize*(1.+band*1.6)/-mv.z; gl_Position=projectionMatrix*mv; }`,
     fragmentShader: 'varying float vA; uniform vec3 uC; void main(){ vec2 c=gl_PointCoord-.5; float m=smoothstep(.5,.0,length(c)); gl_FragColor=vec4(uC*1.3, m*vA); }',
   });
   const scanPts = new THREE.Points(ptsGeo, scanPtsMat);
@@ -653,7 +650,7 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
     const o = {}; const pts = [];
     for (let i = 0; i <= 128; i++) { surface((i / 128) * Math.PI * 2, y, 0.007, o); pts.push(new THREE.Vector3(o.x, o.y, o.z)); }
     const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
-      new THREE.LineDashedMaterial({ color: new THREE.Color('#f1d3a3').multiplyScalar(2.4), dashSize: 0.022, gapSize: 0.014, transparent: true, opacity: 0, toneMapped: false }));
+      new THREE.LineDashedMaterial({ color: new THREE.Color('#7d2438'), dashSize: 0.022, gapSize: 0.014, transparent: true, opacity: 0, toneMapped: false }));
     line.computeLineDistances();
     rig.add(line);
     return line;
@@ -664,7 +661,7 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
   const dustPos = new Float32Array(DUST * 3);
   for (let i = 0; i < DUST; i++) { dustPos[i * 3] = (Math.random() - 0.5) * 9; dustPos[i * 3 + 1] = Math.random() * 4.2 - 1.6; dustPos[i * 3 + 2] = Math.random() * 5 - 3.2; }
   const dustGeo = new THREE.BufferGeometry(); dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
-  const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ size: 0.022, map: makeDot(), color: '#e8cfa6', transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
+  const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ size: 0.022, map: makeDot(), color: '#b99a6b', transparent: true, opacity: 0.3, depthWrite: false }));
   scene.add(dust);
 
   /* garments */
@@ -722,7 +719,7 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
   const FIT_LOOK = lookFor('slip');
   const LABEL_ANGLE = 0.35;
   const STATES = {
-    hero:   { x: 0.95, spin: 0.22, angle: null, scan: 0, labels: 'hero', look: () => HERO_LOOK, camZ: 5.6, camY: 0.2, lookY: -0.1, mLookY: -0.75 },
+    hero:   { x: 0.95, spin: 0.22, angle: null, scan: 0, labels: null, hide: true, look: () => HERO_LOOK, camZ: 5.6, camY: 0.2, lookY: -0.1, mLookY: -0.75 },
     scan:   { mX: -0.34, x: 0.62, spin: 0, angle: LABEL_ANGLE, scan: 1, labels: 'scan', look: () => null, camZ: 5.1, camY: 0.4, lookY: 0.05, mLookY: -0.55 },
     fit:    { mX: -0.34, x: 0.62, spin: 0, angle: LABEL_ANGLE, scan: 0, labels: 'fit', look: () => FIT_LOOK, camZ: 5.1, camY: 0.4, lookY: 0.05, mLookY: -0.55 },
     style:  { x: -0.9, spin: 0.45, angle: null, scan: 0, labels: null, look: 'cycle', camZ: 5.8, camY: 0.2, lookY: -0.1, mLookY: -0.75 },
@@ -745,19 +742,11 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
   }
 
   /* post-processing */
-  const composer = new EffectComposer(renderer);
-  composer.setPixelRatio(DPR);
-  composer.setSize(innerWidth, innerHeight);
-  composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.5, 0.97);
-  composer.addPass(bloom);
-  composer.addPass(new OutputPass());
 
   function resize() {
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight, false);
-    composer.setSize(innerWidth, innerHeight);
   }
   addEventListener('resize', resize);
 
@@ -769,7 +758,7 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
 
   /* first state */
   cur.setLook(HERO_LOOK);
-  labels.forEach((l) => l.el.classList.toggle('show', l.group === 'hero'));
+  // the first screen shows real photos, so no 3D labels there
 
   /* loop */
   const clock = new THREE.Clock();
@@ -830,7 +819,7 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
         startSweep();
       }
     }
-    rig.visible = !(photoMode && stateName === 'studio');
+    rig.visible = !(s.hide || (photoMode && stateName === 'studio'));
     const heatT = heat && stateName === 'studio' ? 1 : 0;
     cur.update(time, dt, heatT);
     if (sweep) nxt.update(time, dt, heatT);
@@ -850,7 +839,7 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
     dustGeo.attributes.position.needsUpdate = true;
     dust.rotation.y = time * 0.01;
 
-    composer.render();
+    renderer.render(scene, camera);
 
     // project labels
     for (const l of labels) {
@@ -876,3 +865,6 @@ export function createScene({ canvas, labelsEl, onReady, studioLook }) {
     setActive(on) { active = !!on; if (on) clock.getDelta(); },
   };
 }
+
+// shared with the live mirror (2D garment drawing)
+export { bodyR, bump, garmentBaseR, topAt, topMax, paintFabric, paintDupatta, mixHex, lightness };

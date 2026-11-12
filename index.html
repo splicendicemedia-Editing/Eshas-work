@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Miraal — Your Fitting Room, Everywhere</title>
   <meta name="description" content="Miraal is a virtual fitting room: measure your body with your phone camera in 30 seconds and try on any outfit in realistic 3D before you buy.">
-  <meta name="theme-color" content="#0b0a0f">
+  <meta name="theme-color" content="#f6f1ea">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=12">
+  <link rel="stylesheet" href="styles.css?v=15">
   <script type="importmap">
     { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -46,7 +46,7 @@
     </nav>
     <div class="nav-actions">
       <button class="btn btn-small btn-profile" id="profileBtn" type="button">Create profile</button>
-      <a class="btn btn-small hide-sm" href="#waitlist">Join waitlist</a>
+      <button class="btn btn-small hide-sm" type="button" data-open-mirror>Try it on me</button>
     </div>
   </header>
 
@@ -55,21 +55,22 @@
     <section id="hero" class="hero" data-state="hero">
       <div class="wrap">
         <div class="hero-copy">
-          <p class="eyebrow reveal"><span class="pulse"></span>Virtual fitting room · Private beta</p>
-          <h1 class="reveal">Try it on<br><em>before</em> it's yours.</h1>
-          <p class="lead reveal">Miraal turns your phone camera into a tailor's tape. One 30-second spin builds your exact 3D body — then watch any outfit drape on it, in real fabric, in the right size.</p>
+          <p class="eyebrow reveal"><span class="pulse"></span>Your fitting room, anywhere</p>
+          <h1 class="reveal">See it on <em>you</em><br>before you buy.</h1>
+          <p class="lead reveal">Hold up your phone and Miraal's live mirror puts a shalwar kameez, an anarkali, a tea dress or a gown on you. Then it measures you with the camera and tells you your size.</p>
           <div class="cta reveal">
-            <a class="btn btn-primary" href="#studio">Try the studio
+            <button class="btn btn-primary" type="button" data-open-mirror>Try it on me
               <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 10h11m-4-5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </a>
-            <a class="btn btn-ghost" href="#measure" data-open-camera>Measure me with my camera</a>
+            </button>
+            <a class="btn btn-ghost" href="#measure" data-open-camera>Find my size</a>
           </div>
           <ul class="hero-stats reveal">
-            <li><b>30s</b><span>one-spin body scan</span></li>
-            <li><b>20+</b><span>measurements captured</span></li>
-            <li><b>1 tap</b><span>to swap any outfit</span></li>
+            <li><b>11</b><span>outfits to try on</span></li>
+            <li><b>1 min</b><span>to find your size</span></li>
+            <li><b>0</b><span>pictures stored</span></li>
           </ul>
         </div>
+        <div class="hero-photos reveal" id="heroPhotos" aria-label="Outfits you can try on"></div>
       </div>
       <a class="scroll-hint" href="#how"><span></span>Scroll to see how it works</a>
     </section>
@@ -81,7 +82,7 @@
           <article class="step-card glass reveal">
             <span class="step-no">01 — Scan</span>
             <h2>Spin once.<br><em>Get measured.</em></h2>
-            <p>Prop your phone up, step back and turn slowly. Our body model maps 24 key points and builds a millimetre-level digital twin — no tape, no tailor, no guesswork.</p>
+            <p>Prop your phone up, step back and turn slowly. Our body tracker follows you as you turn and estimates your measurements. No tape and no tailor needed.</p>
             <ul class="ticks">
               <li>Bust, waist, hips, inseam, shoulders & more</li>
               <li>Works in normal room lighting</li>
@@ -129,11 +130,11 @@
         <div class="measure-copy">
           <p class="eyebrow reveal">Camera measurement</p>
           <h2 class="h2 reveal">Your phone is now<br>a <em>tailor's tape.</em></h2>
-          <p class="sub reveal">No measuring tape, no awkward selfies. Miraal's pose model tracks your body as you turn and turns it into a precise size profile you can use at any store.</p>
+          <p class="sub reveal">No measuring tape, no awkward selfies. Miraal's pose model tracks your body as you turn and turns it into a size profile you can use at any store.</p>
           <ol class="steps-list reveal">
             <li><b>Prop & step back</b><span>Lean your phone against something, about 2 m away.</span></li>
             <li><b>Turn slowly</b><span>One full spin. Voice cues guide you through it.</span></li>
-            <li><b>Get your profile</b><span>20+ measurements, saved privately to your wardrobe.</span></li>
+            <li><b>Get your profile</b><span>9 body measurements, saved only on your device.</span></li>
           </ol>
           <div class="measure-panel glass reveal">
             <div class="panel-head">
@@ -245,7 +246,7 @@
           </div>
 
           <div class="studio-actions">
-            <button class="btn btn-primary" id="saveLook" type="button">Save look</button>
+            <button class="btn btn-primary" id="tryOnMe" type="button">Try it on me</button>
             <button class="btn btn-ghost" id="randomLook" type="button">Surprise me</button>
           </div>
         </div>
@@ -460,6 +461,55 @@
     </p>
   </div>
 
+  <!-- Live mirror: try outfits on yourself (on-device camera overlay) -->
+  <div class="mirror-stage" id="mirrorStage" role="dialog" aria-modal="true" aria-label="Live try-on mirror">
+    <video id="mrVideo" playsinline muted autoplay></video>
+    <canvas id="mrCanvas" aria-hidden="true"></canvas>
+    <div class="mr-shade" aria-hidden="true"></div>
+    <header class="mr-top">
+      <div class="mr-title"><b id="mrName">Live mirror</b><span>Live on your device · nothing is recorded</span></div>
+      <button class="btn btn-small ss-stop" id="mrClose" type="button">✕ Close</button>
+    </header>
+    <p class="mr-hint" id="mrHint" role="status" aria-live="polite"></p>
+    <div class="mr-bottom">
+      <div class="mr-colors" id="mrColors" aria-label="Colour"></div>
+      <div class="mr-rail" id="mrRail" aria-label="Outfits"></div>
+      <div class="mr-actions">
+        <span class="mr-side">Swipe to change outfit</span>
+        <button class="mr-shot" id="mrShot" type="button" aria-label="Take a picture"></button>
+        <span class="mr-side">Tap to take a picture</span>
+      </div>
+    </div>
+
+    <div class="mr-card" id="mrStart">
+      <div class="mr-card-in glass">
+        <h3>Try it on yourself</h3>
+        <p>Your camera becomes a mirror and the outfit is drawn over you, live.</p>
+        <ul class="mr-tips">
+          <li>Stand back so the camera sees you from head to knees</li>
+          <li>Face the camera, in good light</li>
+          <li>Swipe through outfits and colours at the bottom</li>
+        </ul>
+        <div class="privacy-line">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <p><b>Private.</b> The camera picture stays on your device. Nothing is uploaded or saved unless you tap Save on a picture you take.</p>
+        </div>
+        <button class="btn btn-primary" id="mrGo" type="button">Agree &amp; start mirror</button>
+        <button class="btn btn-ghost" id="mrCancel" type="button">Not now</button>
+        <p class="fine" id="mrStatus">Your phone will ask to use the camera. Tap Allow.</p>
+      </div>
+    </div>
+
+    <div class="mr-card" id="mrPhoto" hidden>
+      <div class="mr-card-in glass">
+        <img class="mr-preview" id="mrPreview" alt="Your try-on picture">
+        <a class="btn btn-primary" id="mrSave" download="miraal-try-on.jpg">Save picture</a>
+        <button class="btn btn-ghost" id="mrBack" type="button">Back to mirror</button>
+        <p class="fine">This picture is only on your device. It is deleted when you go back.</p>
+      </div>
+    </div>
+  </div>
+
   <!-- Camera setup + consent -->
   <div class="modal" id="consentModal" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
     <div class="modal-card glass setup-card">
@@ -541,6 +591,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="main.js?v=12"></script>
+  <script type="module" src="main.js?v=15"></script>
 </body>
 </html>

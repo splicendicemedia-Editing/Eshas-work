@@ -7,8 +7,8 @@
 //   stored or uploaded; the camera is switched off and cleared when the scan ends.
 // - The measuring maths (incl. protection against background objects) lives in measure.js.
 
-import { measureFrame, combine, ROW_KEYS } from './measure.js?v=12';
-import { recommendSize } from './profile.js?v=12';
+import { measureFrame, combine, ROW_KEYS } from './measure.js?v=15';
+import { recommendSize } from './profile.js?v=15';
 
 const $ = (s) => document.querySelector(s);
 const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
