@@ -6,9 +6,9 @@
 // time, and a random id made on this device (so ten notes from one phone are not counted as ten people).
 // If the server cannot be reached right now, the note waits on the device and is sent on a later visit.
 
-import { TRYON_API, TRYON_API_ALT } from './config.js?v=23';
+import { TRYON_API, TRYON_API_ALT } from './config.js?v=24';
 
-export const SITE_VERSION = '23';
+export const SITE_VERSION = '24';
 // on a developer machine the server address can be given as ?tryon=<url> for testing
 const LOCAL_API = location.hostname === 'localhost' && new URLSearchParams(location.search).get('tryon');
 const APIS = LOCAL_API ? LOCAL_API.split(',') : [TRYON_API, ...(TRYON_API_ALT || [])].filter(Boolean);

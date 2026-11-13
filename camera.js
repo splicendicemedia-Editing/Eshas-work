@@ -7,10 +7,10 @@
 //   stored or uploaded; the camera is switched off and cleared when the scan ends.
 // - The measuring maths (incl. protection against background objects) lives in measure.js.
 
-import { measureFrame, combine, ROW_KEYS } from './measure.js?v=23';
-import { recommendSize } from './profile.js?v=23';
-import { reportProblem } from './report.js?v=23';
-import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=23';
+import { measureFrame, combine, ROW_KEYS } from './measure.js?v=24';
+import { recommendSize } from './profile.js?v=24';
+import { reportProblem } from './report.js?v=24';
+import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=24';
 
 const $ = (s) => document.querySelector(s);
 const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
@@ -22,16 +22,12 @@ const ROW_LABEL = { neck: 'Neck', bust: 'Chest', waist: 'Waist', hips: 'Hips', t
 const LIVE_KEYS = [['height', 'Height'], ['bust', 'Chest / bust'], ['waist', 'Waist'], ['hips', 'Hips'], ['shoulder', 'Shoulders'], ['inseam', 'Inseam'], ['arm', 'Arm length'], ['neck', 'Neck'], ['thigh', 'Thigh']];
 
 const PHASES = [
-  { id: 'ready', title: 'Step back until we see all of you', sub: 'Head to toe in the picture · about 2 m away',
+  { id: 'ready', title: 'Step back', sub: 'Head to toe in the picture',
     say: 'Stand your phone up at waist height, then step back about two metres, so I can see you from head to toe.' },
-  { id: 'front', need: 'front', hold: 36, arms: true, title: 'Face the camera', sub: 'Arms a little away from your body · feet apart',
-    say: 'Face the camera. Hold your arms a little away from your body, feet apart, and stay still.' },
-  { id: 'side1', need: 'side', hold: 30, turn: true, title: 'Turn to your left', sub: 'Stop when your side faces the camera',
-    say: 'Great. Now turn to your left, and stop when your side faces the camera.' },
-  { id: 'back', need: 'back', hold: 24, turn: true, arms: true, title: 'Keep turning — back to the camera', sub: 'Arms a little out again',
-    say: 'Keep turning left until your back faces the camera. Arms a little out.' },
-  { id: 'side2', need: 'side2', hold: 30, turn: true, title: 'One more turn', sub: 'Stop when your other side faces the camera',
-    say: 'Last one. Keep turning until your other side faces the camera.' },
+  { id: 'front', need: 'front', hold: 36, arms: true, title: 'Face the camera', sub: 'Stand relaxed and hold still',
+    say: 'Face the camera, stand relaxed, and hold still.' },
+  { id: 'side1', need: 'side', hold: 30, turn: true, title: 'Turn to your side', sub: 'Either side · hold still',
+    say: 'Great. Now turn so your side faces the camera, and hold still.' },
   { id: 'done', title: 'All done', sub: '' },
 ];
 const STEP_NAME = { front: 'Front', side1: 'Side', back: 'Back', side2: 'Other side' };
@@ -277,7 +273,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     const ph = PHASES[i];
     stage.dataset.phase = ph.id;
     stage.querySelectorAll('.ss-dots li').forEach((li, k) => { li.classList.toggle('done', k + 1 < i); li.classList.toggle('active', k + 1 === i); });
-    stepNo.textContent = i === 0 ? 'Getting ready' : `Step ${i} of 4 · ${STEP_NAME[ph.id]}`;
+    stepNo.textContent = i === 0 ? 'Getting ready' : `${i} of 2 · ${STEP_NAME[ph.id]}`;
     setGuide(ph.title, ph.sub);
     setRing(0);
     skipBtn.hidden = true;
@@ -415,11 +411,10 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     if (!f.present) hint = envHint;
     else if (!match) hint = f.orient === 'turning' ? 'Keep turning slowly…' : ph.title;
     else if (!envOk) hint = envHint;
-    else if (ph.arms && !c.arms) hint = 'Move your arms out a little so they don’t touch your body';
-    else if (ph.arms && f.legsTogether) hint = 'Stand with your feet apart';
+    else if (ph.arms && !c.arms) hint = 'Hands by your sides, not in front of you';
     else if (!c.still) hint = 'Hold still…';
     setHint(hint);
-    setGuide(ok ? 'Hold still…' : ph.title, ok ? 'Measuring — don’t move' : ph.sub);
+    setGuide(ok ? 'Hold still…' : ph.title, ok ? 'Measuring' : ph.sub);
 
     if (performance.now() - phaseStart > 15000) skipBtn.hidden = false;
     if (hold >= ph.hold) { capture(ph, false); nextPhase(); }
@@ -549,8 +544,8 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     const measured = fb.some((c) => c.bust) && fb.some((c) => c.hips);
     $('#ssSize').innerHTML = !size ? '<small>Your measurements</small>'
       : measured ? `<small>Your size</small><b>${size.size}</b><span>EU ${size.eu} · based on your chest, waist and hips</span>`
-      : `<small>Estimated size</small><b>${size.size}</b><span>EU ${size.eu} · guessed from your height only — scan again with your arms a little out for your real size</span>`;
-    $('#ssTry').textContent = size ? `Try dresses in size ${size.size}` : 'Try dresses';
+      : `<small>Estimated size</small><b>${size.size}</b><span>EU ${size.eu} · guessed from your height only. Scan again for your real size</span>`;
+    $('#ssTry').textContent = size ? `Shop in size ${size.size}` : 'Back to the shop';
     resultEl.innerHTML = LIVE_KEYS.map(([k, l]) => `<div><dt>${l}</dt><dd>${fmtLen(result[k])}<span>${UNIT}</span></dd></div>`).join('');
     const skippedAny = Object.values(captured).some((c) => c.skipped);
     const skippedIds = Object.entries(captured).filter(([, c]) => c.skipped).map(([k]) => k);

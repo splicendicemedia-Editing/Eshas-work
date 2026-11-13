@@ -1,7 +1,7 @@
 // "Create your profile" — preview version stores the profile only in this browser (localStorage).
 // No photos are ever part of a profile: just a name, height, fit preference and measurements.
 
-import { UNIT, fmtLen, heightToCm, heightBox } from './units.js?v=23';
+import { UNIT, fmtLen, heightToCm, heightBox } from './units.js?v=24';
 const $ = (s) => document.querySelector(s);
 const KEY = 'mirra.profile.v1';
 const LABELS = { bust: 'Bust', waist: 'Waist', hips: 'Hips', shoulder: 'Shoulders', inseam: 'Inseam', arm: 'Arm', neck: 'Neck', thigh: 'Thigh' };

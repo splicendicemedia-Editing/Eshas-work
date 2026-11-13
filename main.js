@@ -1,9 +1,9 @@
-import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=23';
-import { initCamera } from './camera.js?v=23';
-import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=23';
-import { initMirror } from './mirror.js?v=23';
-import { reportProblem } from './report.js?v=23';
-import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=23';
+import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=24';
+import { initCamera } from './camera.js?v=24';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=24';
+import { initMirror } from './mirror.js?v=24';
+import { reportProblem } from './report.js?v=24';
+import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=24';
 
 // code errors anywhere on the page are noted too (a few per visit at most)
 let pageErrors = 0;
@@ -58,7 +58,10 @@ const studioLook = lookFor('shalwar');
 let collection = 'pk';
 let scene = null;
 
-import('./scene.js?v=23')
+// The shop front does not show the 3D studio, so the heavy 3D engine is not downloaded there.
+const SHOP_FRONT = document.body.classList.contains('shop-front');
+if (SHOP_FRONT) hideLoader();
+else import('./scene.js?v=24')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();
@@ -86,6 +89,28 @@ function observeStates() {
 
 /* ---------------- live mirror (try it on yourself) ---------------- */
 const mirror = initMirror({ onStage: (open) => scene?.setActive(!open), toast });
+
+/* ---------------- shop front: tap an outfit to try it on ---------------- */
+let shopFor = 'women';
+function renderShop() {
+  const grid = $('#shopGrid');
+  if (!grid) return;
+  $$('#shopTabs [data-for]').forEach((b) => { const on = b.dataset.for === shopFor; b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on)); });
+  grid.innerHTML = Object.entries(ALL).filter(([, v]) => (v.gender === 'men') === (shopFor === 'men'))
+    .map(([k, v]) => `<button class="shop-card" type="button" data-shop="${k}">
+      <img src="${photoUrl(k, 480)}" alt="${PHOTOS[k].alt}" loading="lazy" decoding="async">
+      <span class="info"><small>${REGION_LABEL[v.region]}</small><b>${v.label}</b><i>Try it on</i></span></button>`).join('')
+    + `<button class="shop-card shop-fabric" type="button" data-shop="fabric">
+      <span class="fab-art" aria-hidden="true"></span>
+      <span class="info"><small>Unstitched</small><b>My own fabric</b><i>Try it stitched</i></span></button>`;
+}
+$('#shopTabs')?.addEventListener('click', (e) => { const b = e.target.closest('[data-for]'); if (b) { shopFor = b.dataset.for; renderShop(); } });
+$('#shopGrid')?.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-shop]');
+  if (!b) return;
+  if (b.dataset.shop === 'fabric') mirror.open(null, 'fabric'); else mirror.open(lookFor(b.dataset.shop));
+});
+renderShop();
 
 /* ---------------- studio controls ---------------- */
 function buildStudio() {
@@ -226,6 +251,7 @@ function syncStudio() {
 function setMySize(size) {
   if (!size || !SIZES[size]) return;
   mySize = size;
+  const chip = $('#shopSize'); if (chip) chip.textContent = `Your size: ${size}`;
   studioLook.size = size;
   renderSizes();
   syncStudio();
@@ -323,7 +349,7 @@ initCamera({
   setHeight: (h) => { exactHeight = h; $('#heightIn').value = heightBox(h); showFeet(); updateMeasures(); },
   onMeasured: setMeasured,
   onSave: () => profile.open(),
-  onTry: (size) => { setMySize(size); $('#studio').scrollIntoView({ behavior: 'smooth' }); },
+  onTry: (size) => { setMySize(size); $(SHOP_FRONT ? '#shop' : '#studio').scrollIntoView({ behavior: 'smooth' }); },
   onStage: (open) => scene?.setActive(!open), // pause the 3D scene while the scan is full screen
   toast,
 });

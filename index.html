@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=23">
+  <link rel="stylesheet" href="styles.css?v=24">
   <script type="importmap">
     { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -17,7 +17,7 @@
     } }
   </script>
 </head>
-<body>
+<body class="shop-front">
   <!-- Loader -->
   <div id="loader" aria-hidden="true">
     <div class="loader-inner">
@@ -38,19 +38,33 @@
   <header class="nav">
     <a class="logo" href="#top" aria-label="Miraal home"><span class="logo-mark"></span>MIRAAL</a>
     <nav class="nav-links">
-      <a href="#how">How it works</a>
-      <a href="#measure">Measure</a>
-      <a href="#studio">Studio</a>
-      <a href="#brands">For brands</a>
-      <a href="#faq">FAQ</a>
+      <a href="#shop">Shop</a>
+      <a href="#faq">Help</a>
     </nav>
     <div class="nav-actions">
       <button class="btn btn-small btn-profile" id="profileBtn" type="button">Create profile</button>
-      <button class="btn btn-small hide-sm" type="button" data-open-mirror>Try it on me</button>
+      <button class="btn btn-small hide-sm" type="button" data-open-camera>Find my size</button>
     </div>
   </header>
 
   <main id="top">
+    <!-- SHOP FRONT -->
+    <section id="shop" class="solid shop">
+      <div class="wrap">
+        <div class="shop-head">
+          <h1>Try it on before you buy.</h1>
+          <p>Pick an outfit. Take a photo. See it on you.</p>
+        </div>
+        <div class="shop-bar">
+          <div class="looks-tabs" id="shopTabs" role="tablist" aria-label="Shop for">
+            <button type="button" role="tab" data-for="women" class="active">Women</button><button type="button" role="tab" data-for="men">Men</button>
+          </div>
+          <button class="btn btn-ghost shop-size" type="button" id="shopSize" data-open-camera>Find my size</button>
+        </div>
+        <div class="shop-grid" id="shopGrid"></div>
+      </div>
+    </section>
+
     <!-- HERO -->
     <section id="hero" class="hero" data-state="hero">
       <div class="wrap">
@@ -344,15 +358,15 @@
     <section id="faq" class="solid faq">
       <div class="wrap faq-grid">
         <div>
-          <p class="eyebrow reveal">FAQ</p>
-          <h2 class="h2 reveal">Good <em>questions.</em></h2>
+          <p class="eyebrow reveal">Help</p>
+          <h2 class="h2 reveal">Quick <em>answers.</em></h2>
         </div>
         <div class="faq-list reveal">
-          <details open><summary>How accurate are camera measurements?</summary><p>Our goal is tailor-level accuracy (within about 1–2 cm) for key measurements in normal lighting. Wearing fitted clothes during the scan gives the best results.</p></details>
-          <details><summary>Do you store photos or video of me?</summary><p>No. The scan runs on your device and only the resulting measurements are saved to your account. You can delete them at any time.</p></details>
-          <details><summary>Which phones will it work on?</summary><p>Any recent iPhone or Android phone with a front or rear camera. No depth sensor is needed.</p></details>
-          <details><summary>Can I try clothes from any store?</summary><p>You can try any garment from Miraal partner brands, and save looks across stores in one wardrobe.</p></details>
-          <details><summary>When can I use it?</summary><p>Miraal is in private beta. Join the waitlist and we'll invite you as soon as a spot opens.</p></details>
+          <details open><summary>How does it work?</summary><p>Pick an outfit, take a photo, and in about 20 seconds you see it on you.</p></details>
+          <details><summary>Is my photo kept?</summary><p>No. It is sent to our try-on partner to make your picture. Miraal does not keep it.</p></details>
+          <details><summary>How many outfits can I try?</summary><p>5 free try-ons a day.</p></details>
+          <details><summary>How do I find my size?</summary><p>Tap Find my size, enter your height, face the camera, then turn to your side. It takes about 20 seconds. Sizes are estimates.</p></details>
+          <details><summary>Can I try my own fabric?</summary><p>Yes. Tap My fabric, add a picture of the fabric and choose how it is stitched.</p></details>
         </div>
       </div>
     </section>
@@ -377,7 +391,7 @@
     <footer class="solid footer">
       <div class="wrap foot-grid">
         <a class="logo" href="#top"><span class="logo-mark"></span>MIRAAL</a>
-        <nav><a href="#how">How it works</a><a href="#studio">Studio</a><a href="#brands">Brands</a><a href="#faq">FAQ</a></nav>
+        <nav><a href="#shop">Shop</a><a href="#faq">Help</a></nav>
         <small>© <span id="yr"></span> Miraal. Concept preview.</small>
       </div>
     </footer>
@@ -392,7 +406,7 @@
     <header class="ss-top">
       <div class="ss-progress">
         <span class="ss-stepno" id="ssStepNo">Getting ready</span>
-        <ol class="ss-dots" aria-hidden="true"><li></li><li></li><li></li><li></li><li></li></ol>
+        <ol class="ss-dots" aria-hidden="true"><li></li><li></li><li></li></ol>
       </div>
       <div class="ss-actions">
         <button class="ss-icon" id="ssLiveToggle" type="button" aria-pressed="false" title="Show measurements">
@@ -431,7 +445,7 @@
         <path d="M60 46 l0 -6" stroke="#f4efe7" stroke-width="3" stroke-linecap="round"/>
         <g class="arc"><path d="M60 14 A46 46 0 0 0 16 66" fill="none" stroke="#e2c08d" stroke-width="4" stroke-linecap="round"/><path d="M8 58 L16 68 L25 58" fill="none" stroke="#e2c08d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></g>
       </svg>
-      <span>Turn slowly to your left</span>
+      <span>Turn to your side</span>
     </div>
 
     <p class="ss-hint" id="ssHint" role="status" aria-live="polite"></p>
@@ -475,7 +489,7 @@
       <div class="mr-frame" id="mrFrame">
         <img id="mrImg" alt="You in the chosen outfit">
         <canvas id="mrDraw" aria-hidden="true"></canvas>
-        <div class="mr-busy" id="mrBusy" hidden><span class="mr-spin"></span><b>Creating your look…</b><small>About 20 seconds</small></div>
+        <div class="mr-busy" id="mrBusy" hidden><span class="mr-secs" id="mrSecs" aria-hidden="true"></span><span class="mr-spin"></span><b>Making your picture</b><small></small></div>
       </div>
     </div>
     <div class="mr-shade" aria-hidden="true"></div>
@@ -510,7 +524,8 @@
         <div class="mr-seg" id="mrSide" role="group" aria-label="Which photo">
           <button type="button" data-side="front" class="active">Front</button><button type="button" data-side="back">Back</button>
         </div>
-        <button class="btn btn-primary mr-real" id="mrReal" type="button" hidden>See it for real</button>
+        <button class="btn btn-primary mr-real" id="mrReal" type="button" hidden>Try it on</button>
+        <button class="mr-chip" id="mrSketch" type="button" hidden>Sketch</button>
       </div>
       <p class="mr-left" id="mrLeft"></p>
       <div class="mr-tabs" id="mrTabs" role="tablist" aria-label="What to try on">
@@ -538,12 +553,10 @@
 
     <div class="mr-card" id="mrStart">
       <div class="mr-card-in glass">
-        <h3>Try it on yourself</h3>
-        <p>We take two clear photos of you, then you see the outfits on your own picture.</p>
+        <h3>Take your photo</h3>
         <ul class="mr-tips">
-          <li id="mrTipPhone">Stand your phone up and step back, so it sees you from head to knees</li>
-          <li>Hold still for 3 seconds and the photo is taken by itself: front first, then turn around</li>
-          <li>Fitted clothes and good light give the best result</li>
+          <li id="mrTipPhone">Stand your phone up and step back</li>
+          <li>Hold still for 3 seconds. Front first, then turn around.</li>
         </ul>
         <div class="cam-pick" role="group" aria-label="Which camera">
           <button type="button" data-cam="user" class="on"><b>Front camera</b><span>I am on my own</span></button>
@@ -564,8 +577,8 @@
   <div class="modal" id="consentModal" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
     <div class="modal-card glass setup-card">
       <button class="modal-x" type="button" data-close aria-label="Close">×</button>
-      <h3 id="consentTitle">Find your size in about a minute</h3>
-      <p class="modal-sub">Your camera measures you while a friendly voice tells you what to do.</p>
+      <h3 id="consentTitle">Find my size</h3>
+      <p class="modal-sub">Two poses, about 20 seconds.</p>
 
       <div class="setup-height">
         <div class="setup-height-top">
@@ -646,6 +659,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="main.js?v=23"></script>
+  <script type="module" src="main.js?v=24"></script>
 </body>
 </html>

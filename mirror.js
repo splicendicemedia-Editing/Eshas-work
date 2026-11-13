@@ -7,10 +7,10 @@
 //      and only after the person agreed to it on the start card).
 // Photos live in memory only and are wiped on Close.
 
-import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=23';
-import { getLandmarker } from './pose.js?v=23';
-import { TRYON_API, TRYON_API_ALT, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=23';
-import { reportProblem, sendProblems } from './report.js?v=23';
+import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=24';
+import { getLandmarker } from './pose.js?v=24';
+import { TRYON_API, TRYON_API_ALT, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=24';
+import { reportProblem, sendProblems } from './report.js?v=24';
 
 const $ = (s) => document.querySelector(s);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -62,6 +62,10 @@ export function initMirror({ onStage, toast }) {
   let holdStart = 0, badSince = 0, forced = false, lastFrameT = 0, shownCount = 0;
   let camWant = 'user', rear = false, flipping = false, camRun = 0, session = 0, audio = null, badFrames = 0;
   let notice = ''; // why the last real try-on did not work; stays on screen until the next try
+  let sketch = false;   // the quick drawn sketch is off unless the person asks for it
+  let autoReal = false; // an outfit picked in the shop is tried on for real as soon as the photos are taken
+  let clock = 0;
+  const secsEl = $('#mrSecs'), sketchBtn = $('#mrSketch');
   let hintCount = {}, stuckSent = false; // which hint a person keeps seeing when they cannot get the photo taken
   let photos = { front: null, back: null };   // { canvas, lm, url }
   let side = 'front';
@@ -155,12 +159,13 @@ export function initMirror({ onStage, toast }) {
   function setMode(m) { stage.dataset.mode = m; }
   function open(startLook, startTab) {
     if (startLook && !ALL[startLook.style]) startLook = null;
+    autoReal = !!startLook; sketch = false;
     if (startLook) look = { ...lookFor(startLook.style), ...startLook };
     setTab(startTab || (ALL[look.style].gender === 'men' ? 'men' : 'women'));
     camWant = store.get(CAM_KEY) === 'environment' ? 'environment' : 'user'; syncCam();
     stage.classList.add('open'); document.body.classList.add('mirror-open');
     $('#mrPrivacy').innerHTML = API
-      ? `<b>Your photo.</b> The preview is made on your device. If you tap <b>See it for real</b>, your photo is sent to our try-on partner (${TRYON_PARTNER}) to make the picture. Miraal does not keep it. If something fails, a short note without any picture is sent so we can fix it.`
+      ? `Your photo is sent to our try-on partner (${TRYON_PARTNER}) to make your picture. Miraal does not keep it. If something fails, a short note without any picture is sent so we can fix it.`
       : '<b>Private.</b> Your photos stay on your device. Nothing is uploaded, and they are deleted when you close this screen.';
     if (photos.front) { setMode('looks'); show(); } else { setMode('start'); statusEl.textContent = 'Your phone will ask to use the camera. Tap Allow.'; }
     onStage && onStage(true);
@@ -175,7 +180,7 @@ export function initMirror({ onStage, toast }) {
   function wipe() {
     for (const p of Object.values(photos)) if (p) { p.canvas.width = p.canvas.height = 0; if (p.url) URL.revokeObjectURL(p.url); }
     photos = { front: null, back: null }; results.clear(); stitched.clear(); side = 'front';
-    session++; busy.hidden = true; // a picture still being made belongs to the old photos
+    session++; busy.hidden = true; stopClock(); // a picture still being made belongs to the old photos
     notice = '';
     img.removeAttribute('src'); dctx.setTransform(1, 0, 0, 1, 0, 0); dctx.clearRect(0, 0, drawCv.width, drawCv.height);
   }
@@ -190,7 +195,7 @@ export function initMirror({ onStage, toast }) {
   camBtns.forEach((b) => b.addEventListener('click', () => { camWant = b.dataset.cam; store.set(CAM_KEY, camWant); syncCam(); }));
   function syncCam() {
     camBtns.forEach((b) => b.classList.toggle('on', b.dataset.cam === camWant));
-    $('#mrTipPhone').textContent = camWant === 'environment' ? 'Ask someone to hold the phone upright and stand back, so it sees you from head to knees' : 'Stand your phone up and step back, so it sees you from head to knees';
+    $('#mrTipPhone').textContent = camWant === 'environment' ? 'Someone holds the phone and stands back' : 'Stand your phone up and step back';
   }
   skipBtn.addEventListener('click', () => finishCapture());
   realBtn.addEventListener('click', makeReal);
@@ -249,7 +254,7 @@ export function initMirror({ onStage, toast }) {
     navigator.mediaDevices.enumerateDevices?.().then((d) => { flipBtn.hidden = d.filter((x) => x.kind === 'videoinput').length < 2; }).catch(() => {});
     statusEl.textContent = 'Getting ready… a few seconds the first time.';
     try {
-      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=23')]);
+      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=24')]);
     } catch (e) {
       console.warn('Try-on could not load', e);
       reportProblem('tryon.tracker_load', String(e && e.message || e));
@@ -310,11 +315,11 @@ export function initMirror({ onStage, toast }) {
   function resetHold() { holdStart = 0; badSince = 0; forced = false; shownCount = 0; countEl.textContent = ''; pctEl.textContent = ''; setRing(0); }
   function describeStep() {
     nameEl.textContent = step === 'front' ? 'Photo 1 of 2 · Front' : 'Photo 2 of 2 · Back';
-    subEl.textContent = 'Hold still for 3 seconds and the photo is taken by itself';
+    subEl.textContent = 'Hold still for 3 seconds';
     titleEl.textContent = step === 'front' ? 'Face the camera' : 'Now turn around';
     textEl.textContent = rear
-      ? (step === 'front' ? 'Hold the phone upright and steady. Keep them in the picture from head to knees.' : 'Their back to the camera now. Keep the phone steady.')
-      : (step === 'front' ? 'Stand back so we see you from head to knees. Arms a little away from your body.' : 'Back to the camera. Stand straight and hold still.');
+      ? (step === 'front' ? 'Hold the phone steady. Head to knees in the picture.' : 'Their back to the camera. Hold steady.')
+      : (step === 'front' ? 'Head to knees in the picture.' : 'Back to the camera.');
   }
   function enterStep(s) {
     hintCount = {}; stuckSent = false;
@@ -445,9 +450,13 @@ export function initMirror({ onStage, toast }) {
     for (const p of list) p.canvas.toBlob((b) => {
       if (mine !== session) return; // closed or retaken meanwhile
       p.url = b ? URL.createObjectURL(b) : null;
-      if (--pending === 0) { setMode('looks'); show(); }
+      if (--pending === 0) {
+        setMode('looks'); show();
+        // they picked this outfit in the shop: make the real picture straight away
+        if (autoReal && !custom() && API && leftToday() > 0) { autoReal = false; makeReal(); }
+      }
     }, 'image/jpeg', 0.92);
-    speak('Your photos are ready. Pick an outfit.', true);
+    speak('Your photos are ready.', true);
   }
 
   /* ---------- looks: outfits on the photo ---------- */
@@ -469,16 +478,35 @@ export function initMirror({ onStage, toast }) {
     drawCv.width = Math.round(fw * dpr); drawCv.height = Math.round(fh * dpr);
     dctx.setTransform(1, 0, 0, 1, 0, 0); dctx.clearRect(0, 0, drawCv.width, drawCv.height);
     stage.classList.toggle('is-real', !!real);
-    if (!real && G && (!fab || cloth)) { dctx.setTransform(dpr, 0, 0, dpr, 0, 0); paintOutfit(dctx, fw, fh, (i) => [p.lm[i].x * fw, p.lm[i].y * fh], side === 'back'); }
-    const left = leftToday();
-    subEl.textContent = fab && !cloth ? 'Add a picture of your fabric below' : real ? 'Realistic picture made by AI from your photo' : 'Drawn preview on your photo';
+    const left = leftToday(), canReal = !!API && left > 0;
+    // The person's own photo is shown as it is. The drawn sketch appears only when asked for,
+    // for their own fabric, or when no real try-on is possible.
+    const drawn = !real && G && (!fab || cloth) && (sketch || fab || !canReal);
+    if (drawn) { dctx.setTransform(dpr, 0, 0, dpr, 0, 0); paintOutfit(dctx, fw, fh, (i) => [p.lm[i].x * fw, p.lm[i].y * fh], side === 'back'); }
+    subEl.textContent = fab && !cloth ? 'Add your fabric below' : real ? 'On you' : drawn ? 'Quick sketch' : 'Your photo';
     realBtn.hidden = !API || !!real || (fab && !cloth);
     realBtn.disabled = left <= 0;
-    realBtn.textContent = left > 0 ? 'See it for real' : 'No real try-ons left today';
+    realBtn.textContent = left > 0 ? 'Try it on' : 'No try-ons left today';
+    sketchBtn.hidden = !!real || fab || !canReal || !G;
+    sketchBtn.classList.toggle('on', sketch);
     leftEl.classList.toggle('warn', !!notice && !real);
-    leftEl.textContent = notice && !real ? notice : !API ? 'Realistic AI try-on is not switched on yet. This is a drawn preview.'
-      : real ? `${left} of ${DAILY_LIMIT} real try-ons left today` : left > 0 ? `Uses 1 of your ${left} real try-ons left today` : 'Come back tomorrow for more. The preview still works.';
+    leftEl.textContent = notice && !real ? notice : !API ? 'Real try-on is not switched on yet.'
+      : left > 0 ? `${left} free ${left === 1 ? 'try-on' : 'try-ons'} left today` : 'Come back tomorrow for more.';
   }
+
+  // the wait is shown as a countdown; if the picture takes longer, it says so instead of stopping at zero
+  function startClock(total) {
+    stopClock();
+    const t0 = performance.now();
+    const tick = () => {
+      const left = Math.ceil(total - (performance.now() - t0) / 1000);
+      if (left > 0) { secsEl.textContent = left; busy.classList.add('counting'); }
+      else { busy.classList.remove('counting'); busy.querySelector('b').textContent = 'Almost there…'; busy.querySelector('small').textContent = ''; }
+    };
+    tick(); clock = setInterval(tick, 250);
+  }
+  function stopClock() { clearInterval(clock); clock = 0; busy.classList.remove('counting'); }
+  sketchBtn.addEventListener('click', () => { sketch = !sketch; show(); });
 
   async function makeReal() {
     const p = photos[side];
@@ -495,7 +523,7 @@ export function initMirror({ onStage, toast }) {
     const slow = fab && !stitched.has(sKey);
     const say = (b, small) => { busy.querySelector('b').textContent = b; busy.querySelector('small').textContent = small; };
     notice = '';
-    say('Connecting…', 'A few seconds');
+    say('Connecting…', '');
     busy.hidden = false; realBtn.disabled = true;
     const ctl = new AbortController();
     let timer = 0, why = '', code = '';
@@ -507,7 +535,8 @@ export function initMirror({ onStage, toast }) {
       if (!api) { code = 'unreachable'; why = 'Your internet connection cannot reach our try-on server. Switch between Wi-Fi and mobile data, then tap See it for real again.'; throw new Error('server unreachable'); }
       API = api;
       // 2. send the photo; give up with a clear message instead of spinning for ever
-      say(slow ? 'Stitching your suit…' : 'Creating your look…', slow ? 'About 40 seconds' : 'About 20 seconds');
+      say(slow ? 'Stitching your suit' : 'Making your picture', 'seconds');
+      startClock(slow ? 40 : 20);
       timer = setTimeout(() => ctl.abort(), slow ? 150000 : 90000);
       const r = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -528,7 +557,7 @@ export function initMirror({ onStage, toast }) {
       } else {
         count();
         // 3. make sure the finished picture really opens on this connection; if not, fetch it through our server
-        say('Almost there…', 'Loading your picture');
+        stopClock(); say('Almost there…', '');
         const viaUs = `${API}?img=${encodeURIComponent(data.image)}`;
         const shown = (await loads(data.image)) ? data.image : (await loads(viaUs)) ? viaUs : '';
         if (!shown) { code = 'result_no_load'; why = 'Your picture was made, but it would not load on this internet connection. Switch between Wi-Fi and mobile data and try again.'; throw new Error('result did not load'); }
@@ -548,6 +577,7 @@ export function initMirror({ onStage, toast }) {
     }
     clearTimeout(timer);
     if (mine !== session) return;
+    stopClock();
     busy.hidden = true;
     if (stage.classList.contains('open') && stage.dataset.mode === 'looks') show();
   }
@@ -616,7 +646,7 @@ export function initMirror({ onStage, toast }) {
     const across = (y) => norm(mix(u, uh, clamp((0.15 - y) / 0.7, 0, 1) * 0.8));
     const formHalf = (y) => G.garmentBaseR(p, 0.013, y) * (1 + 0.42 * G.bump(y, 0.8, 0.985));
     // men's cuts fall straight from the chest; women's follow the dress-form shape
-    const half = (y) => (p.cut === 'straight' && y < 0.8 ? 0.352 + (p.flare || 0) * clamp((0.8 - y) / (0.8 - p.bottom), 0, 1) : formHalf(y) * (y < 0.8 ? 0.93 : 1)) * ux;
+    const half = (y) => (p.cut === 'straight' && y < 0.8 ? 0.305 + (p.flare || 0) * clamp((0.8 - y) / (0.8 - p.bottom), 0, 1) : formHalf(y) * (y < 0.8 ? 0.84 : 0.94)) * ux;
     // the customer's own fabric, repeated at a believable print size
     let clothPat = null;
     if (fab) { clothPat = ctx.createPattern(cloth.tile, 'repeat'); const k = (1.15 * sw) / 512; clothPat.setTransform(new DOMMatrix().scale(k, k)); }
@@ -651,7 +681,7 @@ export function initMirror({ onStage, toast }) {
         const w = GATHERED.includes(p.trousers.kind)
           ? [W[0], W[0] * 1.02, W[1], W[1] * 0.92, W[2] * 1.25, W[2]]
           : [W[0], lerp(W[0], W[1], 0.5), W[1], lerp(W[1], W[2], 0.55), lerp(W[1], W[2], 0.9), W[2]];
-        softShadow(); ctx.fillStyle = legHex; tube(pts, w.map((x) => x * sw)); ctx.fill(); noShadow();
+        softShadow(); ctx.fillStyle = legHex; tube(pts, w.map((x) => x * sw * 0.88)); ctx.fill(); noShadow();
         ctx.save(); ctx.clip();
         if (clothPat && p.gender === 'men') { ctx.fillStyle = clothPat; ctx.fillRect(0, 0, cw, ch); }
         const g = ctx.createLinearGradient(...add(knee, u, -W[1] * sw / 2), ...add(knee, u, W[1] * sw / 2));
@@ -759,7 +789,7 @@ export function initMirror({ onStage, toast }) {
       for (const [sh, el, wr] of [[11, 13, 15], [12, 14, 16]]) {
         const a = mix(P(sh), S, 0.06), e = P(el), w = P(wr);
         const pts = f <= 0.5 ? [a, mix(a, e, f / 0.5)] : [a, e, mix(e, w, (f - 0.5) / 0.5)];
-        const w0 = s.r0 * 2 * ux * 1.2, w1 = s.r1 * 2 * ux * 1.2;
+        const w0 = s.r0 * 2 * ux, w1 = s.r1 * 2 * ux;
         const widths = pts.length === 2 ? [w0, lerp(w0, w1, 0.6)] : [w0, lerp(w0, w1, 0.5), w1];
         softShadow(); ctx.fillStyle = hex; const end = tube(pts, widths); ctx.fill(); noShadow();
         ctx.save(); ctx.clip();

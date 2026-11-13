@@ -10,6 +10,11 @@
 // - Mask pixels far away from your skeleton are counted; a busy background is reported so
 //   the user can be asked to move, and those frames are not used.
 // - A final proportion check rejects frames whose scale is clearly wrong.
+//
+// Arms: people stand relaxed, so an arm often rests against the body. In the front and back views
+// each arm's inner edge is worked out from the skeleton and the body is measured up to that edge,
+// so nobody has to hold their arms out. Only hands in front of the body (crossed arms, hands in
+// pockets) still hide the body's edge.
 
 export const PRIOR = { shoulder: 0.238, bust: 0.514, waist: 0.406, hips: 0.56, inseam: 0.452, arm: 0.343, neck: 0.205, thigh: 0.322 };
 export const DEPTH_RATIO = { neck: 0.95, bust: 0.72, waist: 0.76, hips: 0.8, thigh: 1.0 };
@@ -95,8 +100,7 @@ export function measureFrame(lm, mask, o) {
     : ext.bottom >= 0.988 || !(vis(27) || vis(28)) ? 'Your feet are cut off — step back a little' : '';
   f.distHint = frac > 0.93 ? 'Step back a little' : frac < 0.5 ? 'Come a bit closer' : '';
 
-  const wristOut = (w, h) => Math.abs(lm[w].x - lm[h].x) > 0.28 * swN && lm[w].y > sy;
-  f.checks.arms = wristOut(15, 23) && wristOut(16, 24);
+  f.checks.arms = true; // set to false further down if a hand or arm is in front of the body
 
   // upright: shoulders should be straight above the ankles (phone not rolled sideways)
   const ankX = avg(vis(27) ? lm[27].x : null, vis(28) ? lm[28].x : null);
@@ -141,29 +145,59 @@ export function measureFrame(lm, mask, o) {
     hips: [hy + 0.06 * T, hx],
     thigh: [hy + 0.3 * (kneeY - hy), isSide ? hx : lerp(lm[23].x, lm[25].x, 0.3)],
   };
+  // where each arm is at height y: [arm on the left, arm on the right] of the body, or null
+  // arm thickness is taken as a share of shoulder width: upper arm, elbow, wrist, hand
+  const armLimits = (y, cx) => {
+    let L = null, R = null;
+    if (isSide) return [L, R];
+    for (const [s, e, w] of [[11, 13, 15], [12, 14, 16]]) {
+      if (!vis(s) || !vis(e)) continue;
+      const chain = [[lm[s], 0.145], [lm[e], 0.115]];
+      if (vis(w)) {
+        chain.push([lm[w], 0.09]);
+        chain.push([{ x: lm[w].x + (lm[w].x - lm[e].x) * 0.35, y: lm[w].y + (lm[w].y - lm[e].y) * 0.35 }, 0.11]);
+      }
+      for (let i = 0; i < chain.length - 1; i++) {
+        const [a, ra] = chain[i], [b, rb] = chain[i + 1];
+        if (Math.abs(b.y - a.y) < 1e-4 || y < Math.min(a.y, b.y) || y > Math.max(a.y, b.y)) continue;
+        const t = (y - a.y) / (b.y - a.y), ax = lerp(a.x, b.x, t), rad = lerp(ra, rb, t) * swN;
+        // the arm's centre line, its usual thickness, and the least and most it can be
+        // an arm that hangs is close to upright; one that slants across (hand in a pocket, hand on the hip)
+        // lies over the body, so the body's edge cannot be read there
+        let slant = Math.abs((b.x - a.x) * vw) / Math.max(1, Math.abs((b.y - a.y) * vh)) > 0.4;
+        // a hanging arm moves outwards from the body's side line (shoulder joint to hip joint) on the way
+        // down: level with it at the shoulder, about a third of a shoulder width outside it at the hips.
+        // An arm well inside that (hand in a pocket, hand on the stomach) is over the body.
+        const hipJ = lm[s === 11 ? 23 : 24];
+        const down = (y - lm[s].y) / Math.max(1e-4, hipJ.y - lm[s].y);
+        const outside = (ax - lerp(lm[s].x, hipJ.x, down)) * Math.sign(lm[s].x - sx || 1);
+        if (outside < (0.33 * down - 0.2) * swN) slant = true;
+        const arm = { x: ax, r: rad, min: 0.08 * swN, max: 0.2 * swN, slant };
+        if (ax < cx) { if (!L || ax > L.x) L = arm; } else if (!R || ax < R.x) R = arm;
+        break;
+      }
+    }
+    return [L, R];
+  };
   const cm = {};
   for (const k of ROW_KEYS) {
-    const r = run(mask, mw, mh, rows[k][0], rows[k][1], HALF[k] * unit);
+    const [aL, aR] = k === 'neck' || k === 'thigh' ? [null, null] : armLimits(rows[k][0], rows[k][1]);
+    const r = run(mask, mw, mh, rows[k][0], rows[k][1], HALF[k] * unit, aL, aR);
     if (!r) continue;
     f.runs[k] = r;
     if (r.bled) { f.bleed.push(k); continue; }
     cm[k] = r.w * vw * cmPx;
   }
-  // what ran into the corridor because of the background (not arms, legs or hair)
-  let armsMerged = false;
   if (!isSide) {
-    // arms touching the torso make the chest/waist silhouette too wide
-    armsMerged = (f.runs.bust && f.runs.bust.w > 1.25 * swN) || (f.bleed.includes('bust') && !f.checks.arms);
-    if (armsMerged) { f.checks.arms = false; delete cm.bust; delete cm.waist; }
+    // a hand or arm in front of the body hides the body's edge: the cut leaves too little body
+    const least = { bust: 0.62, waist: 0.5, hips: 0.62 };
+    f.armsInFront = ['bust', 'waist', 'hips'].some((k) => f.runs[k] && (f.runs[k].over || (f.runs[k].cut && f.runs[k].w < least[k] * swN)));
+    if (f.armsInFront) { f.checks.arms = false; delete cm.bust; delete cm.waist; delete cm.hips; }
     // legs touching: the thigh run spans both legs
     if ((cm.thigh && cm.hips && cm.thigh > 0.62 * cm.hips) || f.bleed.includes('thigh')) { delete cm.thigh; f.legsTogether = true; }
   }
-  // front/back: with the arms hanging down, hands touch the chest/waist/hips — that is the arms, not the room
-  const armsAway = f.checks.arms && !armsMerged;
-  f.bgBleed = f.bleed.filter((k) => k === 'head'
-    || (!isSide && armsAway && (k === 'bust' || k === 'waist' || k === 'hips'))
-    || (isSide && (k === 'bust' || k === 'waist' || k === 'hips')));
-  if (!isSide && !armsAway && f.bleed.some((k) => k === 'bust' || k === 'waist' || k === 'hips')) f.checks.arms = false;
+  // the outline running past its limit where no arm explains it = furniture, a curtain, another person
+  f.bgBleed = f.bleed.filter((k) => k === 'head' || k === 'bust' || k === 'waist' || k === 'hips');
   if (f.bgBleed.length) f.checks.background = false;
   f.bgHint = f.bgBleed.includes('head') ? 'Move away from things behind your head (shelf, lamp, door frame)'
     : f.bgBleed.length ? 'Step away from furniture — something behind you is touching your outline'
@@ -190,12 +224,15 @@ export function measureFrame(lm, mask, o) {
 
 // Horizontal run of body pixels through (cx, y), confined to cx ± half.
 // bled = the outline kept going past the corridor edge, i.e. something is touching the body.
-export function run(mask, mw, mh, yN, cxN, half) {
+// clipL / clipR (optional) = an arm beside the body { x: centre line, r: usual radius, min, max }.
+// When the outline runs on into that arm, the arm's real thickness is read from its outer edge
+// (centre to outer edge = centre to inner edge) and the body is measured only up to its inner edge.
+export function run(mask, mw, mh, yN, cxN, half, clipL = null, clipR = null) {
   if (!(yN > 0 && yN < 1)) return null;
   const yc = Math.round(yN * (mh - 1));
   const lo = Math.max(0, Math.round((cxN - half) * (mw - 1)));
   const hi = Math.min(mw - 1, Math.round((cxN + half) * (mw - 1)));
-  let sum = 0, L = 0, R = 0, n = 0, bled = 0;
+  let sum = 0, L = 0, R = 0, n = 0, bled = 0, cut = 0, over = 0;
   for (let dy = -2; dy <= 2; dy++) {
     const y = yc + dy; if (y < 0 || y >= mh) continue;
     const o = y * mw;
@@ -211,10 +248,23 @@ export function run(mask, mw, mh, yN, cxN, half) {
     let l = c, r = c;
     while (l > lo && mask[o + l - 1] >= ON) l--;
     while (r < hi && mask[o + r + 1] >= ON) r++;
-    if ((l === lo && lo > 0 && mask[o + lo - 1] >= ON) || (r === hi && hi < mw - 1 && mask[o + hi + 1] >= ON)) bled++;
+    const outL = l === lo && lo > 0 && mask[o + lo - 1] >= ON, outR = r === hi && hi < mw - 1 && mask[o + hi + 1] >= ON;
+    let cutL = false, cutR = false;
+    const px = (v) => v * (mw - 1);
+    if ((clipL && clipL.slant && l < px(clipL.x)) || (clipR && clipR.slant && r > px(clipR.x))) over++;
+    if (clipL && l < px(clipL.x)) {
+      const rad = outL ? clipL.r : Math.min(clipL.max, Math.max(clipL.min, clipL.x - l / (mw - 1)));
+      l = Math.min(Math.round(px(clipL.x + rad)), c); cutL = true;
+    }
+    if (clipR && r > px(clipR.x)) {
+      const rad = outR ? clipR.r : Math.min(clipR.max, Math.max(clipR.min, r / (mw - 1) - clipR.x));
+      r = Math.max(Math.round(px(clipR.x - rad)), c); cutR = true;
+    }
+    if ((outL && !cutL) || (outR && !cutR)) bled++;
+    if (cutL || cutR) cut++;
     sum += r - l + 1; L += l; R += r + 1; n++;
   }
-  return n ? { w: sum / n / mw, l: L / n / mw, r: R / n / mw, y: yN, bled: bled >= 2 } : null;
+  return n ? { w: sum / n / mw, l: L / n / mw, r: R / n / mw, y: yN, bled: bled >= 2, cut: cut >= 2, over: over >= 2 } : null;
 }
 
 export function crotchY(mask, mw, mh, cxN, bottomN, hipN) {
