@@ -132,6 +132,8 @@ export function measureFrame(lm, mask, o) {
 
   /* ---- widths / depths inside a skeleton corridor ---- */
   const cmPx = H / (frac * vh);
+  // size reference for the turn-around step: hip-to-ankle length does not change as the person turns
+  if (ankY != null && ankY - hy > 0.05) f.scale = { cmPx, leg: (ankY - hy) * vh, torso: T / (ankY - hy) };
   const mouthY = (lm[9].y + lm[10].y) / 2;
   const kneeY = (lm[25].y + lm[26].y) / 2;
   const earX = avg(vis(7) ? lm[7].x : null, vis(8) ? lm[8].x : null) ?? sx;
@@ -276,8 +278,8 @@ export function crotchY(mask, mw, mh, cxN, bottomN, hipN) {
   return y <= stop ? null : y / mh;
 }
 
-/** Combine captured front/back widths and side depths into circumferences. */
-export function combine({ height: H, front = {}, back = {}, side1 = {}, side2 = {}, liveW = {}, liveD = {}, liveLen = {}, final }) {
+/** Combine captured front/back widths and side depths into circumferences. around = measured all the way round in the turn. */
+export function combine({ height: H, front = {}, back = {}, side1 = {}, side2 = {}, around = {}, liveW = {}, liveD = {}, liveLen = {}, final }) {
   // Sanity limits around what is usual for this height. Chest, waist and hips vary a lot between
   // people of the same height, so their upper limit is wide; lengths vary much less.
   const capped = [];
@@ -290,6 +292,7 @@ export function combine({ height: H, front = {}, back = {}, side1 = {}, side2 = 
   const out = { height: H };
   const state = { height: 'ok' };
   for (const k of ROW_KEYS) {
+    if (around[k]) { out[k] = clampP(k, around[k]); state[k] = capped.includes(k) ? 'est' : 'ok'; continue; }
     const w = avg(front[k], back[k]) ?? (final ? null : liveW[k]);
     const dCap = avg(side1[k], side2[k]);
     const d = dCap ?? (final ? null : liveD[k]) ?? (w ? w * DEPTH_RATIO[k] : null);
@@ -302,4 +305,91 @@ export function combine({ height: H, front = {}, back = {}, side1 = {}, side2 = 
     state[k] = capped.includes(k) ? 'est' : front[k] || back[k] ? 'ok' : v ? 'est' : '';
   }
   return { out, state, capped };
+}
+
+/* ---------- turn-around step ---------- */
+// While the person turns all the way round, every frame gives the body's width at chest, waist and
+// hips as seen from that angle. For any outline without dents, the distance round it (what a tape
+// measures) is exactly pi times the average width over all viewing angles (Cauchy's formula). So
+// with the arms out of the way (hands on the head) the turn measures the real distance round the
+// body instead of assuming it is an oval. With the arms hanging, the angled views include the arms,
+// so only the true side views are used, for depth.
+
+/** One frame of the turn: widths in pixels, how side-on the person is, and the size reference. */
+export function turnWidths(lm, mask, o) {
+  const { mw, mh, vw, vh, torso } = o;
+  const vis = (i) => lm[i] && lm[i].visibility > 0.5;
+  if (!(vis(11) && vis(12)) || !(vis(23) || vis(24))) return null;
+  const sx = (lm[11].x + lm[12].x) / 2, sy = (lm[11].y + lm[12].y) / 2;
+  const hx = (lm[23].x + lm[24].x) / 2, hy = (lm[23].y + lm[24].y) / 2;
+  const ank = avg(vis(27) ? lm[27].y : null, vis(28) ? lm[28].y : null);
+  if (ank == null || ank - hy < 0.05) return null;
+  const leg = (ank - hy) * vh;                       // hip to ankle in pixels: does not change as the person turns or lifts their arms
+  // chest and waist levels are counted up from the hips with the torso length seen in the front
+  // view, because lifting the arms moves the shoulders
+  const T = torso ? torso * (ank - hy) : Math.max(0.02, hy - sy);
+  const Tx = T * vh / vw;
+  const top = hy - T;
+  const rows = { bust: [top + 0.3 * T, lerp(sx, hx, 0.3)], waist: [top + 0.64 * T, lerp(sx, hx, 0.64)], hips: [hy + 0.06 * T, hx] };
+  const px = {};
+  for (const k of Object.keys(rows)) {
+    const r = run(mask, mw, mh, rows[k][0], rows[k][1], 0.66 * Tx);
+    if (r && !r.bled) px[k] = r.w * vw;
+  }
+  const faceVis = Math.max(lm[0].visibility, lm[2].visibility, lm[5].visibility);
+  return {
+    ratio: (Math.abs(lm[11].x - lm[12].x) * vw) / leg,  // widest facing or back to the camera, smallest side-on
+    facing: lm[11].x > lm[12].x && faceVis > 0.5 ? 'front' : 'back',
+    armsUp: vis(15) && vis(16) && lm[15].y < sy && lm[16].y < sy,
+    leg, px,
+  };
+}
+
+/**
+ * Turn the frames of one turn into measurements.
+ * scale = { cmPx, leg } from the front view. Returns
+ *   mode 'around' -> around[k] = distance round the body in cm (arms were up, enough angles seen)
+ *   mode 'side'   -> depth[k]  = front-to-back depth in cm from the side views
+ *   mode 'none'   -> not enough to use
+ */
+export function fromTurn(samples, scale) {
+  const out = { mode: 'none', around: {}, depth: {}, armsUp: false, angles: 0, frames: samples.length };
+  if (!scale || !scale.cmPx || samples.length < 12) return out;
+  const rs = samples.map((s) => s.ratio).sort((a, b) => a - b);
+  const q = (p) => rs[Math.min(rs.length - 1, Math.floor(p * rs.length))];
+  const rMax = q(0.95), rMin = Math.min(q(0.05), 0.3 * rMax);
+  // 0 = facing or back to the camera, 90 = side-on
+  const yaw = (s) => Math.acos(clamp((s.ratio - rMin) / Math.max(1e-6, rMax - rMin), 0, 1)) * 180 / Math.PI;
+  const NB = 9; // 10-degree steps
+  out.armsUp = samples.filter((s) => s.armsUp).length / samples.length >= 0.7;
+  let fewest = NB;
+  for (const k of ['bust', 'waist', 'hips']) {
+    const sum = new Array(NB).fill(0), cnt = new Array(NB).fill(0);
+    for (const s of samples) {
+      if (s.px[k] == null || !s.leg) continue;
+      const b = Math.min(NB - 1, Math.floor(yaw(s) / (90 / NB)));
+      sum[b] += s.px[k] * scale.cmPx * (scale.leg / s.leg); // same size reference as the front view, even if they stepped nearer
+      cnt[b]++;
+    }
+    const m = cnt.map((c, i) => (c ? sum[i] / c : null));
+    const filled = m.filter((v) => v != null).length;
+    fewest = Math.min(fewest, filled);
+    const side = m[8] ?? m[7];
+    if (side != null) out.depth[k] = side;
+    if (out.armsUp && filled >= 7 && (m[0] ?? m[1]) != null && side != null) {
+      // fill a missing step from its neighbours
+      for (let i = 0; i < NB; i++) {
+        if (m[i] != null) continue;
+        let a = i - 1, b = i + 1;
+        while (a >= 0 && m[a] == null) a--;
+        while (b < NB && m[b] == null) b++;
+        m[i] = a < 0 ? m[b] : b >= NB ? m[a] : lerp(m[a], m[b], (i - a) / (b - a));
+      }
+      out.around[k] = Math.PI * m.reduce((x, y) => x + y, 0) / NB;
+    }
+  }
+  out.angles = fewest;
+  out.mode = Object.keys(out.around).length === 3 ? 'around' : Object.keys(out.depth).length ? 'side' : 'none';
+  if (out.mode !== 'around') out.around = {};
+  return out;
 }

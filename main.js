@@ -1,9 +1,9 @@
-import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=24';
-import { initCamera } from './camera.js?v=24';
-import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=24';
-import { initMirror } from './mirror.js?v=24';
-import { reportProblem } from './report.js?v=24';
-import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=24';
+import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=25';
+import { initCamera } from './camera.js?v=25';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=25';
+import { initMirror } from './mirror.js?v=25';
+import { reportProblem } from './report.js?v=25';
+import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=25';
 
 // code errors anywhere on the page are noted too (a few per visit at most)
 let pageErrors = 0;
@@ -61,7 +61,7 @@ let scene = null;
 // The shop front does not show the 3D studio, so the heavy 3D engine is not downloaded there.
 const SHOP_FRONT = document.body.classList.contains('shop-front');
 if (SHOP_FRONT) hideLoader();
-else import('./scene.js?v=24')
+else import('./scene.js?v=25')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();
@@ -305,6 +305,8 @@ function animateTo(values) {
   $$('.p-tag b').forEach((b) => { if (values[b.dataset.k] != null) b.textContent = withUnit(values[b.dataset.k]); });
 }
 function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
+// the person switched between metres and feet / inches: redraw the numbers already on the page
+addEventListener('mirra:units', () => animateTo({ ...shown }));
 function showFeet() {
   const h = heightToCm($('#heightIn').value);
   if (!(h >= 130 && h <= 215)) { $('#heightFt').textContent = ''; return; }

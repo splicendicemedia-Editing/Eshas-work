@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=24">
+  <link rel="stylesheet" href="styles.css?v=25">
   <script type="importmap">
     { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -365,7 +365,7 @@
           <details open><summary>How does it work?</summary><p>Pick an outfit, take a photo, and in about 20 seconds you see it on you.</p></details>
           <details><summary>Is my photo kept?</summary><p>No. It is sent to our try-on partner to make your picture. Miraal does not keep it.</p></details>
           <details><summary>How many outfits can I try?</summary><p>5 free try-ons a day.</p></details>
-          <details><summary>How do I find my size?</summary><p>Tap Find my size, enter your height, face the camera, then turn to your side. It takes about 20 seconds. Sizes are estimates.</p></details>
+          <details><summary>How do I find my size?</summary><p>Tap Find my size, enter your height, face the camera, then turn around once with your hands on your head. It takes about 30 seconds. Sizes are estimates.</p></details>
           <details><summary>Can I try my own fabric?</summary><p>Yes. Tap My fabric, add a picture of the fabric and choose how it is stitched.</p></details>
         </div>
       </div>
@@ -445,7 +445,7 @@
         <path d="M60 46 l0 -6" stroke="#f4efe7" stroke-width="3" stroke-linecap="round"/>
         <g class="arc"><path d="M60 14 A46 46 0 0 0 16 66" fill="none" stroke="#e2c08d" stroke-width="4" stroke-linecap="round"/><path d="M8 58 L16 68 L25 58" fill="none" stroke="#e2c08d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></g>
       </svg>
-      <span>Turn to your side</span>
+      <span>Turn around slowly</span>
     </div>
 
     <p class="ss-hint" id="ssHint" role="status" aria-live="polite"></p>
@@ -578,7 +578,7 @@
     <div class="modal-card glass setup-card">
       <button class="modal-x" type="button" data-close aria-label="Close">×</button>
       <h3 id="consentTitle">Find my size</h3>
-      <p class="modal-sub">Two poses, about 20 seconds.</p>
+      <p class="modal-sub">Face the camera, then turn around once. About 30 seconds.</p>
 
       <div class="setup-height">
         <div class="setup-height-top">
@@ -659,6 +659,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="main.js?v=24"></script>
+  <script type="module" src="main.js?v=25"></script>
 </body>
 </html>

@@ -7,10 +7,10 @@
 //   stored or uploaded; the camera is switched off and cleared when the scan ends.
 // - The measuring maths (incl. protection against background objects) lives in measure.js.
 
-import { measureFrame, combine, ROW_KEYS } from './measure.js?v=24';
-import { recommendSize } from './profile.js?v=24';
-import { reportProblem } from './report.js?v=24';
-import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=24';
+import { measureFrame, combine, turnWidths, fromTurn, ROW_KEYS } from './measure.js?v=25';
+import { recommendSize } from './profile.js?v=25';
+import { reportProblem } from './report.js?v=25';
+import { UNIT, fmtLen, withUnit, heightText, useUnits, heightToCm, heightBox } from './units.js?v=25';
 
 const $ = (s) => document.querySelector(s);
 const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
@@ -26,11 +26,11 @@ const PHASES = [
     say: 'Stand your phone up at waist height, then step back about two metres, so I can see you from head to toe.' },
   { id: 'front', need: 'front', hold: 36, arms: true, title: 'Face the camera', sub: 'Stand relaxed and hold still',
     say: 'Face the camera, stand relaxed, and hold still.' },
-  { id: 'side1', need: 'side', hold: 30, turn: true, title: 'Turn to your side', sub: 'Either side · hold still',
-    say: 'Great. Now turn so your side faces the camera, and hold still.' },
+  { id: 'spin', turn: true, title: 'Turn around slowly', sub: 'One full turn · hands on your head',
+    say: 'Great. Now put your hands on your head, and turn all the way around, slowly.' },
   { id: 'done', title: 'All done', sub: '' },
 ];
-const STEP_NAME = { front: 'Front', side1: 'Side', back: 'Back', side2: 'Other side' };
+const STEP_NAME = { front: 'Front', spin: 'Turn', side1: 'Side', back: 'Back', side2: 'Other side' };
 const CAM_KEY = 'mirra.cam'; // 'user' (front camera) or 'environment' (back camera, someone else holds the phone)
 const READY_SAY_REAR = 'Hold the phone upright at about waist height, two metres away, so I can see the whole person from head to toe.';
 
@@ -63,10 +63,12 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   let voiceOn = true, lastSpoken = 0, lastHint = '', hintSince = 0;
   let unit = store.get('mirra.unit') === 'ft' ? 'ft' : 'cm';
   let camWant = 'user', rear = false, flipping = false, camRun = 0, badFrames = 0, stuckSent = false;
+  let lastLm = null, scales = [], scaleRef = null, spin = [], spinStage = 0, turnRes = null; // the turn-around step
 
   /* ---------- setup card: height (cm or ft/in) + consent ---------- */
   function setUnit(u) {
     unit = u; store.set('mirra.unit', u);
+    useUnits(u); // results are shown in the same units the person chose for their height
     consent.querySelectorAll('[data-unit]').forEach((b) => b.classList.toggle('on', b.dataset.unit === u));
     consent.querySelector('.h-cm').hidden = u !== 'cm';
     consent.querySelector('.h-ft').hidden = u !== 'ft';
@@ -262,6 +264,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   }
 
   function resetScan() {
+    scales = []; scaleRef = null; spin = []; spinStage = 0; turnRes = null; lastLm = null;
     pi = 0; hold = 0; samples = []; side1Dir = 0; captured = {}; liveW = {}; liveD = {}; liveLen = {}; lastResult = null;
     prevHip = null; stillCount = 0; frameNo = 0; lastT = -1; lastHint = ''; phoneTilt = null;
     liveList.querySelectorAll('[data-k]').forEach((r) => { r.className = ''; r.querySelector('b').textContent = '—'; });
@@ -321,6 +324,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     res.close?.();
     frameNo++;
     if (frameNo % 20 === 1) sampleLight();
+    lastLm = lm || null;
     const f = analyse(lm);
     draw(lm, f);
     step(f);
@@ -395,6 +399,8 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
       return;
     }
 
+    if (ph.id === 'spin') { stepSpin(ph, f); return; }
+
     let match = false;
     if (ph.need === 'front') match = f.orient === 'front';
     else if (ph.need === 'back') match = f.orient === 'back';
@@ -402,7 +408,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     else if (ph.need === 'side2') match = f.orient === 'side' && (side1Dir === 0 || f.dir !== side1Dir || performance.now() - phaseStart > 9000);
 
     const ok = match && envOk && (!ph.arms || c.arms) && c.still && f.cm;
-    if (ok) { hold++; samples.push(f.cm); } else hold = Math.max(0, hold - 1);
+    if (ok) { hold++; samples.push(f.cm); if (f.scale) scales.push(f.scale); } else hold = Math.max(0, hold - 1);
     if (ph.need === 'side' && match && c.still) side1Dir = f.dir;
     setRing(hold / ph.hold);
     turnEl.classList.toggle('show', !!ph.turn && !match);
@@ -420,7 +426,34 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     if (hold >= ph.hold) { capture(ph, false); nextPhase(); }
   }
 
+  // Turn-around step: collect what every angle shows; done when the person is facing the camera again.
+  function stepSpin(ph, f) {
+    const SEQ = ['front', 'side', 'back', 'side', 'front'];
+    const t = f.present && lastLm && maskBuf ? turnWidths(lastLm, maskBuf, { mw, mh, vw: video.videoWidth, vh: video.videoHeight, torso: scaleRef && scaleRef.torso }) : null;
+    let hint = '';
+    if (!t) hint = 'Stay in the picture, head to toe';
+    else if (!f.checks.light) hint = f.lightHint;
+    else {
+      spin.push(t);
+      if (f.orient === SEQ[spinStage + 1]) spinStage++;
+      if (spinStage === 0 && performance.now() - phaseStart > 5000) hint = 'Start turning, slowly';
+    }
+    setRing(spinStage / 4);
+    turnEl.classList.toggle('show', spinStage === 0);
+    setHint(hint);
+    setGuide(ph.title, t && !t.armsUp ? 'Hands on your head gives the most exact result' : 'Keep turning, slowly');
+    if (performance.now() - phaseStart > 15000) skipBtn.hidden = false;
+    if (spinStage >= 4) { finishSpin(false); nextPhase(); }
+  }
+  function finishSpin(skipped) {
+    turnRes = fromTurn(spin, scaleRef);
+    captured.spin = turnRes.mode === 'none' ? { skipped: true } : { mode: turnRes.mode };
+    if (turnRes.mode === 'none') reportProblem('scan.turn_not_used', `${spin.length} frames, ${turnRes.angles} of 9 angles, skipped ${skipped}`);
+    if (!skipped) speak('Nice.', true);
+  }
+
   function capture(ph, skipped) {
+    if (ph.id === 'spin') { finishSpin(skipped); return; }
     // a skipped step still keeps whatever good frames it collected
     const usable = !skipped || samples.length >= 6;
     const take = (k) => median(samples.map((s) => s[k]).filter((v) => v != null));
@@ -428,11 +461,16 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     if (usable) for (const k of [...ROW_KEYS, 'shoulder', 'arm', 'inseam']) { const v = take(k); if (v != null) got[k] = v; }
     captured[ph.id] = usable && Object.keys(got).length ? got : { skipped: true };
     if (ph.id === 'side1' && usable) side1Dir = side1Dir || 1;
+    if (ph.id === 'front' && scales.length) {
+      const mid = (k) => median(scales.map((s) => s[k]));
+      scaleRef = { cmPx: mid('cmPx'), leg: mid('leg'), torso: mid('torso') };
+    }
     if (!skipped) speak(ph.id === 'front' ? 'Got it.' : 'Nice.', true);
   }
 
   function compute(final) {
-    return combine({ height: getHeight(), front: captured.front, back: captured.back, side1: captured.side1, side2: captured.side2, liveW, liveD, liveLen, final });
+    return combine({ height: getHeight(), front: captured.front, back: captured.back, side1: turnRes ? turnRes.depth : captured.side1, side2: captured.side2,
+      around: turnRes ? turnRes.around : {}, liveW, liveD, liveLen, final });
   }
 
   function renderLive() {
@@ -440,7 +478,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     for (const [k] of LIVE_KEYS) {
       const row = liveList.querySelector(`[data-k="${k}"]`);
       if (!row) continue;
-      row.querySelector('b').textContent = out[k] ? withUnit(out[k]) : '—';
+      row.querySelector('b').textContent = out[k] ? (k === 'height' ? heightText(out[k]) : withUnit(out[k])) : '—';
       row.className = state[k] || '';
     }
   }
@@ -546,7 +584,8 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
       : measured ? `<small>Your size</small><b>${size.size}</b><span>EU ${size.eu} · based on your chest, waist and hips</span>`
       : `<small>Estimated size</small><b>${size.size}</b><span>EU ${size.eu} · guessed from your height only. Scan again for your real size</span>`;
     $('#ssTry').textContent = size ? `Shop in size ${size.size}` : 'Back to the shop';
-    resultEl.innerHTML = LIVE_KEYS.map(([k, l]) => `<div><dt>${l}</dt><dd>${fmtLen(result[k])}<span>${UNIT}</span></dd></div>`).join('');
+    resultEl.innerHTML = LIVE_KEYS.map(([k, l]) => (k === 'height' ? `<div><dt>${l}</dt><dd>${heightText(result[k])}</dd></div>`
+      : `<div><dt>${l}</dt><dd>${fmtLen(result[k])}<span>${UNIT}</span></dd></div>`)).join('');
     const skippedAny = Object.values(captured).some((c) => c.skipped);
     const skippedIds = Object.entries(captured).filter(([, c]) => c.skipped).map(([k]) => k);
     if (skippedIds.length) reportProblem('scan.steps_skipped', skippedIds.join(', '));
@@ -554,6 +593,8 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     if (!measured) reportProblem('scan.size_guessed', 'chest and hips were not captured');
     $('#ssDoneNote').textContent = skippedAny
       ? 'Some steps were skipped, so a few numbers are estimated from your height.'
+      : turnRes && turnRes.mode === 'around' ? 'Chest, waist and hips were measured all the way round you. These are still estimates from your outline.'
+      : turnRes && turnRes.mode === 'side' ? 'Chest, waist and hips come from your front and side. For the most exact result, scan again with your hands on your head while you turn.'
       : capped.length ? 'One or more numbers came out far from what is usual for your height, so they were limited. Loose clothes or things behind you can cause this. Scan again in fitted clothes.'
       : 'These are estimates from your outline. For the best result, scan in fitted clothes.';
     doneEl.hidden = false;
