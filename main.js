@@ -1,9 +1,9 @@
-import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=25';
-import { initCamera } from './camera.js?v=25';
-import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=25';
-import { initMirror } from './mirror.js?v=25';
-import { reportProblem } from './report.js?v=25';
-import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=25';
+import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=26';
+import { initCamera } from './camera.js?v=26';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=26';
+import { initMirror } from './mirror.js?v=26';
+import { reportProblem } from './report.js?v=26';
+import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=26';
 
 // code errors anywhere on the page are noted too (a few per visit at most)
 let pageErrors = 0;
@@ -61,7 +61,7 @@ let scene = null;
 // The shop front does not show the 3D studio, so the heavy 3D engine is not downloaded there.
 const SHOP_FRONT = document.body.classList.contains('shop-front');
 if (SHOP_FRONT) hideLoader();
-else import('./scene.js?v=25')
+else import('./scene.js?v=26')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();
@@ -249,9 +249,10 @@ function syncStudio() {
   scene?.setStudioLook({ ...studioLook, size: fitKeyFor(studioLook.size) });
 }
 function setMySize(size) {
-  if (!size || !SIZES[size]) return;
-  mySize = size;
+  if (!size) return;
   const chip = $('#shopSize'); if (chip) chip.textContent = `Your size: ${size}`;
+  if (!SIZES[size]) return; // sizes beyond the old 3D studio's range (XXL) still show in the shop
+  mySize = size;
   studioLook.size = size;
   renderSizes();
   syncStudio();

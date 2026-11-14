@@ -27,11 +27,29 @@ export function heightText(cm) {
   return `${ft} ft ${inch} in`;
 }
 
-/** What someone typed as their height in the metres box -> centimetres. "1.68" and "168" both mean 168 cm. */
+/**
+ * What someone typed as their height -> centimetres.
+ * Understands 1.68 and 168 (metres, centimetres) and 5'8", 5 ft 8, 5 8, 5.8 (feet and inches).
+ */
 export function heightToCm(text) {
-  const v = parseFloat(String(text).replace(',', '.'));
+  const s = String(text).trim().toLowerCase().replace(',', '.');
+  const fi = /^(\d)\s*(?:ft|feet|foot|'|′)\s*(\d{1,2}(?:\.\d+)?)?\s*(?:in|inch|inches|"|″|'')?$/.exec(s) || /^(\d)\s+(\d{1,2})$/.exec(s);
+  if (fi) return (parseInt(fi[1], 10) * 12 + parseFloat(fi[2] || '0')) * 2.54;
+  const v = parseFloat(s);
   if (!isFinite(v)) return NaN;
-  return v > 0 && v < 3 ? v * 100 : v;
+  if (v > 0 && v < 3) return v * 100;                       // metres
+  if (v >= 3 && v < 9) {                                     // 5.8 or 5.11 typed for 5 ft 8 in / 5 ft 11 in
+    const ft = Math.floor(v), inch = parseInt((s.split('.')[1] || '0').slice(0, 2), 10) || 0;
+    return (ft * 12 + Math.min(inch, 11)) * 2.54;
+  }
+  return v;                                                  // centimetres
+}
+/** A height for a free-text box, in the chosen units: 1.72 or 5'8" */
+export function heightField(cm) {
+  if (UNIT !== 'in') return (cm / 100).toFixed(2);
+  let ft = Math.floor(cm / 30.48), inch = Math.round(cm / 2.54 - ft * 12);
+  if (inch === 12) { ft++; inch = 0; }
+  return `${ft}'${inch}"`;
 }
 /** 168 (cm) -> "1.68" for the metres height box */
 export const heightBox = (cm) => (cm / 100).toFixed(2);

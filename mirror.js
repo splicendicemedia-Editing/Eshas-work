@@ -7,10 +7,10 @@
 //      and only after the person agreed to it on the start card).
 // Photos live in memory only and are wiped on Close.
 
-import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=25';
-import { getLandmarker } from './pose.js?v=25';
-import { TRYON_API, TRYON_API_ALT, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=25';
-import { reportProblem, sendProblems } from './report.js?v=25';
+import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=26';
+import { getLandmarker } from './pose.js?v=26';
+import { TRYON_API, TRYON_API_ALT, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=26';
+import { reportProblem, sendProblems } from './report.js?v=26';
 
 const $ = (s) => document.querySelector(s);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -254,7 +254,7 @@ export function initMirror({ onStage, toast }) {
     navigator.mediaDevices.enumerateDevices?.().then((d) => { flipBtn.hidden = d.filter((x) => x.kind === 'videoinput').length < 2; }).catch(() => {});
     statusEl.textContent = 'Getting ready… a few seconds the first time.';
     try {
-      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=25')]);
+      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=26')]);
     } catch (e) {
       console.warn('Try-on could not load', e);
       reportProblem('tryon.tracker_load', String(e && e.message || e));

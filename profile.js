@@ -1,28 +1,47 @@
 // "Create your profile" — preview version stores the profile only in this browser (localStorage).
 // No photos are ever part of a profile: just a name, height, fit preference and measurements.
 
-import { UNIT, fmtLen, heightToCm, heightBox } from './units.js?v=25';
+import { UNIT, fmtLen, heightToCm, heightField } from './units.js?v=26';
 const $ = (s) => document.querySelector(s);
 const KEY = 'mirra.profile.v1';
 const LABELS = { bust: 'Bust', waist: 'Waist', hips: 'Hips', shoulder: 'Shoulders', inseam: 'Inseam', arm: 'Arm', neck: 'Neck', thigh: 'Thigh' };
-// upper limits per size (cm). Bust and hips decide; waist only pushes up when it is clearly bigger.
-const SIZE_TABLE = [
-  { size: 'XS', eu: 34, bust: 82, waist: 66, hips: 90 },
-  { size: 'S', eu: 36, bust: 88, waist: 72, hips: 96 },
-  { size: 'M', eu: 38, bust: 94, waist: 78, hips: 102 },
-  { size: 'L', eu: 40, bust: 100, waist: 84, hips: 108 },
-  { size: 'XL', eu: 42, bust: Infinity, waist: Infinity, hips: Infinity },
-];
-export const SIZE_ORDER = SIZE_TABLE.map((r) => r.size);
+// Upper limits per size, in cm. Women and men are cut differently, so each has its own chart.
+// (There used to be one women's chart for everybody, which put nearly every man in the top size.)
+// Women: bust and hips decide. Men: chest decides. A clearly bigger waist moves either up one size.
+const CHARTS = {
+  women: [
+    { size: 'XS', eu: '34', bust: 82, waist: 66, hips: 90 },
+    { size: 'S', eu: '36', bust: 88, waist: 72, hips: 96 },
+    { size: 'M', eu: '38', bust: 94, waist: 78, hips: 102 },
+    { size: 'L', eu: '40', bust: 100, waist: 84, hips: 108 },
+    { size: 'XL', eu: '42', bust: 106, waist: 90, hips: 114 },
+    { size: 'XXL', eu: '44+', bust: Infinity, waist: Infinity, hips: Infinity },
+  ],
+  men: [
+    { size: 'XS', eu: '44', bust: 86, waist: 72 },
+    { size: 'S', eu: '46', bust: 94, waist: 80 },
+    { size: 'M', eu: '48-50', bust: 102, waist: 88 },
+    { size: 'L', eu: '52-54', bust: 110, waist: 96 },
+    { size: 'XL', eu: '56-58', bust: 118, waist: 106 },
+    { size: 'XXL', eu: '60+', bust: Infinity, waist: Infinity },
+  ],
+};
+export const SIZE_ORDER = CHARTS.women.map((r) => r.size);
+const WHO_KEY = 'mirra.who';
+/** 'women' or 'men': whose size chart to use (chosen on the size-scan card). */
+export const whoFor = () => { try { return localStorage.getItem(WHO_KEY) === 'men' ? 'men' : 'women'; } catch { return 'women'; } };
+export const setWhoFor = (w) => { try { localStorage.setItem(WHO_KEY, w === 'men' ? 'men' : 'women'); } catch { /* blocked */ } };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-export function recommendSize(m) {
-  if (!m || !m.bust || !m.hips) return null;
-  const at = (k, v) => SIZE_TABLE.findIndex((r) => v <= r[k]);
-  let idx = Math.max(at('bust', m.bust), at('hips', m.hips));
+export function recommendSize(m, who = whoFor()) {
+  const men = who === 'men';
+  if (!m || !m.bust || (!men && !m.hips)) return null;
+  const table = CHARTS[men ? 'men' : 'women'];
+  const at = (k, v) => { const i = table.findIndex((r) => v <= r[k]); return i < 0 ? table.length - 1 : i; };
+  let idx = men ? at('bust', m.bust) : Math.max(at('bust', m.bust), at('hips', m.hips));
   // waist is the least reliable camera value: only let it raise the size by one, and only with a clear margin
-  if (m.waist && at('waist', m.waist - 3) > idx) idx = Math.min(idx + 1, SIZE_TABLE.length - 1);
-  return SIZE_TABLE[idx < 0 ? SIZE_TABLE.length - 1 : idx];
+  if (m.waist && at('waist', m.waist - 3) > idx) idx = Math.min(idx + 1, table.length - 1);
+  return { ...table[idx], who: men ? 'men' : 'women' };
 }
 
 function load() { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } }
@@ -66,7 +85,7 @@ export function initProfile({ getMeasures, getHeight, isMeasured, toast }) {
       source: isMeasured() ? 'camera' : saved?.source || 'estimate',
     };
     nameIn.value = draft.name;
-    heightIn.value = heightBox(draft.height);
+    heightIn.value = heightField(draft.height);
     form.querySelectorAll('input[name="fit"]').forEach((r) => { r.checked = r.value === draft.fit; });
     title.textContent = saved ? 'Your profile' : 'Create your profile';
     delBtn.hidden = !saved;

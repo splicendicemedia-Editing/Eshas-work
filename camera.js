@@ -7,10 +7,10 @@
 //   stored or uploaded; the camera is switched off and cleared when the scan ends.
 // - The measuring maths (incl. protection against background objects) lives in measure.js.
 
-import { measureFrame, combine, turnWidths, fromTurn, ROW_KEYS } from './measure.js?v=25';
-import { recommendSize } from './profile.js?v=25';
-import { reportProblem } from './report.js?v=25';
-import { UNIT, fmtLen, withUnit, heightText, useUnits, heightToCm, heightBox } from './units.js?v=25';
+import { measureFrame, combine, turnWidths, fromTurn, ROW_KEYS } from './measure.js?v=26';
+import { recommendSize, whoFor, setWhoFor } from './profile.js?v=26';
+import { reportProblem } from './report.js?v=26';
+import { UNIT, fmtLen, withUnit, heightText, useUnits, heightToCm, heightBox } from './units.js?v=26';
 
 const $ = (s) => document.querySelector(s);
 const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
@@ -27,7 +27,7 @@ const PHASES = [
   { id: 'front', need: 'front', hold: 36, arms: true, title: 'Face the camera', sub: 'Stand relaxed and hold still',
     say: 'Face the camera, stand relaxed, and hold still.' },
   { id: 'spin', turn: true, title: 'Turn around slowly', sub: 'One full turn · hands on your head',
-    say: 'Great. Now put your hands on your head, and turn all the way around, slowly.' },
+    say: 'Great. Now put your hands on your head.' },
   { id: 'done', title: 'All done', sub: '' },
 ];
 const STEP_NAME = { front: 'Front', spin: 'Turn', side1: 'Side', back: 'Back', side2: 'Other side' };
@@ -64,6 +64,8 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   let unit = store.get('mirra.unit') === 'ft' ? 'ft' : 'cm';
   let camWant = 'user', rear = false, flipping = false, camRun = 0, badFrames = 0, stuckSent = false;
   let lastLm = null, scales = [], scaleRef = null, spin = [], spinStage = 0, turnRes = null; // the turn-around step
+  let spinMax = 0, spinArmed = 0, armsUpRun = 0;
+  let who = whoFor(); // whose size chart: 'women' or 'men'
 
   /* ---------- setup card: height (cm or ft/in) + consent ---------- */
   function setUnit(u) {
@@ -94,6 +96,9 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     e.currentTarget.textContent = list.hidden ? 'More' : 'Less';
   });
 
+  const whoBtns = consent.querySelectorAll('[data-who]');
+  const syncWho = () => whoBtns.forEach((b) => b.classList.toggle('on', b.dataset.who === who));
+  whoBtns.forEach((b) => b.addEventListener('click', () => { who = b.dataset.who; setWhoFor(who); syncWho(); }));
   function syncCam() {
     camBtns.forEach((b) => b.classList.toggle('on', b.dataset.cam === camWant));
     const back = camWant === 'environment';
@@ -102,7 +107,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   }
   camBtns.forEach((b) => b.addEventListener('click', () => { camWant = b.dataset.cam; store.set(CAM_KEY, camWant); syncCam(); }));
   flipBtn.addEventListener('click', flip);
-  const openConsent = () => { setUnit(unit); camWant = store.get(CAM_KEY) === 'environment' ? 'environment' : 'user'; syncCam(); hErr.textContent = ''; consent.classList.add('open'); };
+  const openConsent = () => { who = whoFor(); syncWho(); setUnit(unit); camWant = store.get(CAM_KEY) === 'environment' ? 'environment' : 'user'; syncCam(); hErr.textContent = ''; consent.classList.add('open'); };
   const closeConsent = () => consent.classList.remove('open');
   camBtn?.addEventListener('click', openConsent);
   document.querySelectorAll('[data-open-camera]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); openConsent(); }));
@@ -264,7 +269,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   }
 
   function resetScan() {
-    scales = []; scaleRef = null; spin = []; spinStage = 0; turnRes = null; lastLm = null;
+    scales = []; scaleRef = null; spin = []; spinStage = 0; turnRes = null; lastLm = null; spinMax = 0; spinArmed = 0; armsUpRun = 0;
     pi = 0; hold = 0; samples = []; side1Dir = 0; captured = {}; liveW = {}; liveD = {}; liveLen = {}; lastResult = null;
     prevHip = null; stillCount = 0; frameNo = 0; lastT = -1; lastHint = ''; phoneTilt = null;
     liveList.querySelectorAll('[data-k]').forEach((r) => { r.className = ''; r.querySelector('b').textContent = '—'; });
@@ -408,7 +413,9 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     else if (ph.need === 'side2') match = f.orient === 'side' && (side1Dir === 0 || f.dir !== side1Dir || performance.now() - phaseStart > 9000);
 
     const ok = match && envOk && (!ph.arms || c.arms) && c.still && f.cm;
-    if (ok) { hold++; samples.push(f.cm); if (f.scale) scales.push(f.scale); } else hold = Math.max(0, hold - 1);
+    if (ok) { hold++; samples.push(f.cm); } else hold = Math.max(0, hold - 1);
+    // the size reference for the turn comes from any good front frame, even if this step is skipped
+    if (ph.need === 'front' && match && envOk && f.scale) scales.push(f.scale);
     if (ph.need === 'side' && match && c.still) side1Dir = f.dir;
     setRing(hold / ph.hold);
     turnEl.classList.toggle('show', !!ph.turn && !match);
@@ -428,21 +435,30 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
 
   // Turn-around step: collect what every angle shows; done when the person is facing the camera again.
   function stepSpin(ph, f) {
-    const SEQ = ['front', 'side', 'back', 'side', 'front'];
+    // a full turn = wide (facing), narrow (side-on), wide (back), narrow, wide again. Wide and narrow are
+    // judged against the widest this person has looked, so it works for any build and with arms up.
+    const SEQ = ['wide', 'narrow', 'wide', 'narrow', 'wide'];
+    const now = performance.now();
     const t = f.present && lastLm && maskBuf ? turnWidths(lastLm, maskBuf, { mw, mh, vw: video.videoWidth, vh: video.videoHeight, torso: scaleRef && scaleRef.torso }) : null;
     let hint = '';
-    if (!t) hint = 'Stay in the picture, head to toe';
+    if (!f.present) hint = 'Stay in the picture, head to toe';
     else if (!f.checks.light) hint = f.lightHint;
-    else {
+    else if (t && !spinArmed) {
+      // wait for the hands to go up (it keeps the arms out of the measurement); after 10 seconds carry on anyway
+      armsUpRun = t.armsUp ? armsUpRun + 1 : 0;
+      if (armsUpRun >= 6 || now - phaseStart > 10000) { spinArmed = now; speak('Now turn all the way around, slowly.', true); }
+    } else if (t) {
       spin.push(t);
-      if (f.orient === SEQ[spinStage + 1]) spinStage++;
-      if (spinStage === 0 && performance.now() - phaseStart > 5000) hint = 'Start turning, slowly';
+      spinMax = Math.max(spinMax, t.ratio);
+      const at = t.ratio > 0.8 * spinMax ? 'wide' : t.ratio < 0.55 * spinMax ? 'narrow' : '';
+      if (spin.length > 5 && at === SEQ[spinStage + 1]) spinStage++;
+      if (spinStage === 0 && now - spinArmed > 5000) hint = 'Turn around, slowly';
     }
     setRing(spinStage / 4);
-    turnEl.classList.toggle('show', spinStage === 0);
+    turnEl.classList.toggle('show', !!spinArmed && spinStage === 0);
     setHint(hint);
-    setGuide(ph.title, t && !t.armsUp ? 'Hands on your head gives the most exact result' : 'Keep turning, slowly');
-    if (performance.now() - phaseStart > 15000) skipBtn.hidden = false;
+    setGuide(spinArmed ? ph.title : 'Hands on your head', spinArmed ? (t && !t.armsUp ? 'Hands on your head is more exact' : 'One full turn') : 'Then turn around slowly');
+    if (now - phaseStart > 15000) skipBtn.hidden = false;
     if (spinStage >= 4) { finishSpin(false); nextPhase(); }
   }
   function finishSpin(skipped) {
@@ -470,7 +486,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
 
   function compute(final) {
     return combine({ height: getHeight(), front: captured.front, back: captured.back, side1: turnRes ? turnRes.depth : captured.side1, side2: captured.side2,
-      around: turnRes ? turnRes.around : {}, liveW, liveD, liveLen, final });
+      around: turnRes ? turnRes.around : {}, liveW, liveD, liveLen, final, who });
   }
 
   function renderLive() {
@@ -575,14 +591,15 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     stage.dataset.phase = 'done';
     stage.querySelectorAll('.ss-dots li').forEach((li) => { li.classList.add('done'); li.classList.remove('active'); });
     stepNo.textContent = 'Done';
-    const size = recommendSize(result);
+    const size = recommendSize(result, who);
     lastResult = { result, size };
-    // only claim a measured size when the front or back view really captured chest and hips
+    // only claim a measured size when chest and hips were really captured (front view, or all the way round in the turn)
     const fb = [captured.front, captured.back].filter((c) => c && !c.skipped);
-    const measured = fb.some((c) => c.bust) && fb.some((c) => c.hips);
+    const measured = (fb.some((c) => c.bust) && fb.some((c) => c.hips)) || !!(turnRes && turnRes.mode === 'around');
+    const label = who === 'men' ? 'Men’s size' : 'Women’s size';
     $('#ssSize').innerHTML = !size ? '<small>Your measurements</small>'
-      : measured ? `<small>Your size</small><b>${size.size}</b><span>EU ${size.eu} · based on your chest, waist and hips</span>`
-      : `<small>Estimated size</small><b>${size.size}</b><span>EU ${size.eu} · guessed from your height only. Scan again for your real size</span>`;
+      : measured ? `<small>${label}</small><b>${size.size}</b><span>EU ${size.eu} · based on your ${who === 'men' ? 'chest and waist' : 'chest, waist and hips'}</span>`
+      : `<small>Estimated ${label.toLowerCase()}</small><b>${size.size}</b><span>EU ${size.eu} · guessed from your height only. Scan again for your real size</span>`;
     $('#ssTry').textContent = size ? `Shop in size ${size.size}` : 'Back to the shop';
     resultEl.innerHTML = LIVE_KEYS.map(([k, l]) => (k === 'height' ? `<div><dt>${l}</dt><dd>${heightText(result[k])}</dd></div>`
       : `<div><dt>${l}</dt><dd>${fmtLen(result[k])}<span>${UNIT}</span></dd></div>`)).join('');

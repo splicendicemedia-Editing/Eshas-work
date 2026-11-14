@@ -16,7 +16,10 @@
 // so nobody has to hold their arms out. Only hands in front of the body (crossed arms, hands in
 // pockets) still hide the body's edge.
 
-export const PRIOR = { shoulder: 0.238, bust: 0.514, waist: 0.406, hips: 0.56, inseam: 0.452, arm: 0.343, neck: 0.205, thigh: 0.322 };
+export const PRIOR_WOMEN = { shoulder: 0.238, bust: 0.514, waist: 0.406, hips: 0.56, inseam: 0.452, arm: 0.343, neck: 0.205, thigh: 0.322 };
+export const PRIOR = PRIOR_WOMEN;
+// the same for men, whose waist and shoulders are a bigger share of their height
+export const PRIOR_MEN = { shoulder: 0.259, bust: 0.56, waist: 0.49, hips: 0.565, inseam: 0.45, arm: 0.35, neck: 0.22, thigh: 0.33 };
 export const DEPTH_RATIO = { neck: 0.95, bust: 0.72, waist: 0.76, hips: 0.8, thigh: 1.0 };
 export const CIRC_FACTOR = { neck: 1.0, bust: 1.05, waist: 1.0, hips: 1.0, thigh: 1.0 };
 export const ROW_KEYS = ['neck', 'bust', 'waist', 'hips', 'thigh'];
@@ -184,7 +187,15 @@ export function measureFrame(lm, mask, o) {
   const cm = {};
   for (const k of ROW_KEYS) {
     const [aL, aR] = k === 'neck' || k === 'thigh' ? [null, null] : armLimits(rows[k][0], rows[k][1]);
-    const r = run(mask, mw, mh, rows[k][0], rows[k][1], HALF[k] * unit, aL, aR);
+    let r = run(mask, mw, mh, rows[k][0], rows[k][1], HALF[k] * unit, aL, aR);
+    if (k === 'neck') {
+      // the neck is the narrowest place between the jaw and the shoulders; a single fixed line sat
+      // under the jaw and read too wide
+      for (let t = 0.47; t <= 0.8; t += 0.06) {
+        const n = run(mask, mw, mh, mouthY + t * (sy - mouthY), rows.neck[1], HALF.neck * unit);
+        if (n && !n.bled && (!r || r.bled || n.w < r.w)) r = n;
+      }
+    }
     if (!r) continue;
     f.runs[k] = r;
     if (r.bled) { f.bleed.push(k); continue; }
@@ -279,7 +290,8 @@ export function crotchY(mask, mw, mh, cxN, bottomN, hipN) {
 }
 
 /** Combine captured front/back widths and side depths into circumferences. around = measured all the way round in the turn. */
-export function combine({ height: H, front = {}, back = {}, side1 = {}, side2 = {}, around = {}, liveW = {}, liveD = {}, liveLen = {}, final }) {
+export function combine({ height: H, front = {}, back = {}, side1 = {}, side2 = {}, around = {}, liveW = {}, liveD = {}, liveLen = {}, final, who = 'women' }) {
+  const PRIOR = who === 'men' ? PRIOR_MEN : PRIOR_WOMEN;
   // Sanity limits around what is usual for this height. Chest, waist and hips vary a lot between
   // people of the same height, so their upper limit is wide; lengths vary much less.
   const capped = [];
@@ -299,6 +311,11 @@ export function combine({ height: H, front = {}, back = {}, side1 = {}, side2 = 
     out[k] = w ? clampP(k, ellipse(w, d) * CIRC_FACTOR[k]) : (final ? H * PRIOR[k] : null);
     state[k] = capped.includes(k) ? 'est' : (front[k] || back[k]) && dCap ? 'ok' : w ? 'est' : '';
   }
+  // Neck: an outline is a poor guide here (hair, beard, collar, a lowered chin all widen it), so the
+  // reading is only trusted when it agrees with what the chest suggests (collar size follows chest size).
+  const neckWant = out.bust ? out.bust * (who === 'men' ? 0.385 : 0.355) : H * PRIOR.neck;
+  if (out.neck != null && Math.abs(out.neck / neckWant - 1) > 0.12) { out.neck = neckWant; state.neck = 'est'; }
+  if (capped.includes('neck')) capped.splice(capped.indexOf('neck'), 1);
   for (const k of ['shoulder', 'arm', 'inseam']) {
     const v = front[k] ?? back[k] ?? (final ? null : liveLen[k]);
     out[k] = v ? clampP(k, v) : (final ? H * PRIOR[k] : null);
@@ -319,7 +336,8 @@ export function combine({ height: H, front = {}, back = {}, side1 = {}, side2 = 
 export function turnWidths(lm, mask, o) {
   const { mw, mh, vw, vh, torso } = o;
   const vis = (i) => lm[i] && lm[i].visibility > 0.5;
-  if (!(vis(11) && vis(12)) || !(vis(23) || vis(24))) return null;
+  // side-on, the far shoulder, hip and wrist are hidden; the tracker still places them, so they are used
+  if (!(vis(11) || vis(12)) || !(vis(23) || vis(24))) return null;
   const sx = (lm[11].x + lm[12].x) / 2, sy = (lm[11].y + lm[12].y) / 2;
   const hx = (lm[23].x + lm[24].x) / 2, hy = (lm[23].y + lm[24].y) / 2;
   const ank = avg(vis(27) ? lm[27].y : null, vis(28) ? lm[28].y : null);
@@ -340,7 +358,8 @@ export function turnWidths(lm, mask, o) {
   return {
     ratio: (Math.abs(lm[11].x - lm[12].x) * vw) / leg,  // widest facing or back to the camera, smallest side-on
     facing: lm[11].x > lm[12].x && faceVis > 0.5 ? 'front' : 'back',
-    armsUp: vis(15) && vis(16) && lm[15].y < sy && lm[16].y < sy,
+    // hands on the head: every wrist the camera can see is above the shoulders
+    armsUp: (vis(15) || vis(16)) && [15, 16].filter(vis).every((i) => lm[i].y < sy),
     leg, px,
   };
 }
@@ -357,24 +376,26 @@ export function fromTurn(samples, scale) {
   if (!scale || !scale.cmPx || samples.length < 12) return out;
   const rs = samples.map((s) => s.ratio).sort((a, b) => a - b);
   const q = (p) => rs[Math.min(rs.length - 1, Math.floor(p * rs.length))];
-  const rMax = q(0.95), rMin = Math.min(q(0.05), 0.3 * rMax);
+  const rMax = q(0.95), rMin = Math.min(q(0.03), 0.6 * rMax); // side-on shoulders still show some width; an unfinished turn must not count its narrowest moment as side-on
   // 0 = facing or back to the camera, 90 = side-on
   const yaw = (s) => Math.acos(clamp((s.ratio - rMin) / Math.max(1e-6, rMax - rMin), 0, 1)) * 180 / Math.PI;
   const NB = 9; // 10-degree steps
   out.armsUp = samples.filter((s) => s.armsUp).length / samples.length >= 0.7;
   let fewest = NB;
   for (const k of ['bust', 'waist', 'hips']) {
-    const sum = new Array(NB).fill(0), cnt = new Array(NB).fill(0);
+    const bin = Array.from({ length: NB }, () => []);
     for (const s of samples) {
       if (s.px[k] == null || !s.leg) continue;
       const b = Math.min(NB - 1, Math.floor(yaw(s) / (90 / NB)));
-      sum[b] += s.px[k] * scale.cmPx * (scale.leg / s.leg); // same size reference as the front view, even if they stepped nearer
-      cnt[b]++;
+      bin[b].push(s.px[k] * scale.cmPx * (scale.leg / s.leg)); // same size reference as the front view, even if they stepped nearer
     }
-    const m = cnt.map((c, i) => (c ? sum[i] / c : null));
+    const m = bin.map((v) => (v.length ? v.reduce((x, y) => x + y, 0) / v.length : null));
     const filled = m.filter((v) => v != null).length;
     fewest = Math.min(fewest, filled);
-    const side = m[8] ?? m[7];
+    // side-on depth. With the arms hanging, an arm in front of the stomach or behind the back adds
+    // to some side-on frames, so the lower readings are the body itself.
+    const sideAll = [...bin[8], ...(bin[8].length >= 3 ? [] : bin[7])].sort((x, y) => x - y);
+    const side = !sideAll.length ? null : out.armsUp ? sideAll.reduce((x, y) => x + y, 0) / sideAll.length : sideAll[Math.floor(sideAll.length * 0.25)];
     if (side != null) out.depth[k] = side;
     if (out.armsUp && filled >= 7 && (m[0] ?? m[1]) != null && side != null) {
       // fill a missing step from its neighbours
