@@ -130,11 +130,13 @@ async function readProblems(env, request) {
 
 const isFalMedia = (h) => h === 'fal.media' || h.endsWith('.fal.media') || h === 'cdn.fashn.ai';
 
-async function visitorKey(request) {
+// vid = the random id the site makes on each phone. Many phones share one network address on mobile
+// data, so the daily limit is counted per phone, with a higher ceiling for the whole address.
+async function visitorKey(request, vid = '') {
   // never store the raw address: keep only a one-way fingerprint for today
   const day = new Date().toISOString().slice(0, 10);
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${day}|${ip}`));
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${day}|${ip}|${vid}`));
   return `${day}:${[...new Uint8Array(bytes)].slice(0, 12).map((b) => b.toString(16).padStart(2, '0')).join('')}`;
 }
 
@@ -195,7 +197,11 @@ export default {
     try { body = await request.json(); } catch { return json({ error: 'Bad request' }, 400); }
 
     /* 4. problem notes from the site */
-    if (body && Array.isArray(body.reports)) return json({ stored: await saveProblems(env, request, body.reports).catch(() => 0) });
+    if (body && Array.isArray(body.reports)) {
+      // a failed save answers 503, so the site keeps the notes and sends them again later
+      try { return json({ stored: await saveProblems(env, request, body.reports) }); }
+      catch { return json({ error: 'The problem log is not available right now' }, 503); }
+    }
     // problems the server sees itself are noted too, without holding up the answer
     const note = (kind, msg, place) => { const job = saveProblems(env, request, [{ kind, msg, place, t: Date.now() }]).catch(() => 0); if (ctx && ctx.waitUntil) ctx.waitUntil(job); };
 
@@ -217,17 +223,24 @@ export default {
     } else return json({ error: 'The outfit picture is missing' }, 400);
 
     const limit = parseInt(env.DAILY_LIMIT || '5', 10) || 5;
-    let key = null, usedToday = 0;
+    let key = null, usedToday = 0, ipKey = null, usedIp = 0;
     if (env.LIMITS) {
-      key = await visitorKey(request);
+      const vid = /^[0-9a-f]{12}$/.test(body.visitor || '') ? body.visitor : '';
+      key = await visitorKey(request, vid);
       usedToday = parseInt((await env.LIMITS.get(key)) || '0', 10) || 0;
-      if (usedToday >= limit) { note('server.limit_reached', `limit ${limit} a day`, wantsStitch ? 'Fabric' : 'Outfit'); return json({ error: 'Daily limit reached', left: 0 }, 429); }
+      if (vid) { ipKey = await visitorKey(request); usedIp = parseInt((await env.LIMITS.get(ipKey)) || '0', 10) || 0; }
+      // each phone gets the daily limit; one network address gets at most six phones' worth
+      if (usedToday >= limit || usedIp >= limit * 6) { note('server.limit_reached', `limit ${limit} a day`, wantsStitch ? 'Fabric' : 'Outfit'); return json({ error: 'Daily limit reached', left: 0 }, 429); }
       // count this try-on before the slow AI work, so several requests sent at once cannot all slip under the limit
       await env.LIMITS.put(key, String(usedToday + 1), { expirationTtl: 172800 });
+      if (ipKey) await env.LIMITS.put(ipKey, String(usedIp + 1), { expirationTtl: 172800 });
     }
     const left = key ? Math.max(0, limit - usedToday - 1) : null;
     // nothing was made: give the try-on back
-    const refund = async () => { if (key) await env.LIMITS.put(key, String(usedToday), { expirationTtl: 172800 }).catch(() => {}); };
+    const refund = async () => {
+      if (key) await env.LIMITS.put(key, String(usedToday), { expirationTtl: 172800 }).catch(() => {});
+      if (ipKey) await env.LIMITS.put(ipKey, String(usedIp), { expirationTtl: 172800 }).catch(() => {});
+    };
 
     let stitchedUrl = null;
     try {

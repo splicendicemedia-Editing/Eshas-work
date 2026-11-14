@@ -1,7 +1,7 @@
 // "Create your profile" — preview version stores the profile only in this browser (localStorage).
 // No photos are ever part of a profile: just a name, height, fit preference and measurements.
 
-import { UNIT, fmtLen, heightToCm, heightField } from './units.js?v=26';
+import { UNIT, fmtLen, heightToCm, heightField } from './units.js?v=27';
 const $ = (s) => document.querySelector(s);
 const KEY = 'mirra.profile.v1';
 const LABELS = { bust: 'Bust', waist: 'Waist', hips: 'Hips', shoulder: 'Shoulders', inseam: 'Inseam', arm: 'Arm', neck: 'Neck', thigh: 'Thigh' };
@@ -65,7 +65,7 @@ export function initProfile({ getMeasures, getHeight, isMeasured, toast }) {
     const entries = Object.entries(draft.measurements || {}).filter(([k, v]) => LABELS[k] && v > 0);
     list.innerHTML = entries.length
       ? entries.map(([k, v]) => `<div><small>${LABELS[k]}</small><b>${fmtLen(v)}<span>${UNIT}</span></b></div>`).join('')
-      : '<p class="fine">No measurements yet — scan with your camera or enter your height.</p>';
+      : '<p class="fine">No measurements yet. Tap Find my size.</p>';
     const r = recommendSize(draft.measurements);
     rec.innerHTML = r ? `<small>Recommended size</small><b>${r.size} · EU ${r.eu}</b>` : '';
     src.textContent = draft.source === 'camera' ? 'From your camera scan' : 'Estimated from your height';

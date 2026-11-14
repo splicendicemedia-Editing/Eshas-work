@@ -7,10 +7,10 @@
 //      and only after the person agreed to it on the start card).
 // Photos live in memory only and are wiped on Close.
 
-import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=26';
-import { getLandmarker } from './pose.js?v=26';
-import { TRYON_API, TRYON_API_ALT, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=26';
-import { reportProblem, sendProblems } from './report.js?v=26';
+import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=27';
+import { getLandmarker } from './pose.js?v=27';
+import { TRYON_API, TRYON_API_ALT, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=27';
+import { reportProblem, sendProblems, visitorId } from './report.js?v=27';
 
 const $ = (s) => document.querySelector(s);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -40,10 +40,11 @@ async function reachable(url, ms = 7000) {
   catch { return false; }
   finally { clearTimeout(t); }
 }
-const loads = (url, ms = 20000) => new Promise((res) => {
+const loads = (url, ms = 20000, viaServer = false) => new Promise((res) => {
   const im = new Image(), t = setTimeout(() => { im.src = ''; res(false); }, ms);
   im.onload = () => { clearTimeout(t); res(true); };
   im.onerror = () => { clearTimeout(t); res(false); };
+  if (viaServer) im.crossOrigin = 'anonymous'; // our server only answers requests that say which site they come from
   im.src = url;
 });
 
@@ -63,6 +64,7 @@ export function initMirror({ onStage, toast }) {
   let camWant = 'user', rear = false, flipping = false, camRun = 0, session = 0, audio = null, badFrames = 0;
   let notice = ''; // why the last real try-on did not work; stays on screen until the next try
   let sketch = false;   // the quick drawn sketch is off unless the person asks for it
+  let lastDrawn = false; // whether the sketch is on screen right now (Save picture saves what is shown)
   let autoReal = false; // an outfit picked in the shop is tried on for real as soon as the photos are taken
   let clock = 0;
   const secsEl = $('#mrSecs'), sketchBtn = $('#mrSketch');
@@ -180,7 +182,7 @@ export function initMirror({ onStage, toast }) {
   function wipe() {
     for (const p of Object.values(photos)) if (p) { p.canvas.width = p.canvas.height = 0; if (p.url) URL.revokeObjectURL(p.url); }
     photos = { front: null, back: null }; results.clear(); stitched.clear(); side = 'front';
-    session++; busy.hidden = true; stopClock(); // a picture still being made belongs to the old photos
+    session++; busy.hidden = true; stage.classList.remove('is-busy'); stopClock(); // a picture still being made belongs to the old photos
     notice = '';
     img.removeAttribute('src'); dctx.setTransform(1, 0, 0, 1, 0, 0); dctx.clearRect(0, 0, drawCv.width, drawCv.height);
   }
@@ -254,7 +256,7 @@ export function initMirror({ onStage, toast }) {
     navigator.mediaDevices.enumerateDevices?.().then((d) => { flipBtn.hidden = d.filter((x) => x.kind === 'videoinput').length < 2; }).catch(() => {});
     statusEl.textContent = 'Getting ready… a few seconds the first time.';
     try {
-      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=26')]);
+      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=27')]);
     } catch (e) {
       console.warn('Try-on could not load', e);
       reportProblem('tryon.tracker_load', String(e && e.message || e));
@@ -468,6 +470,7 @@ export function initMirror({ onStage, toast }) {
     nameEl.textContent = fab ? (cloth ? `${STITCH.wearer[stitch.wearer]} from your fabric` : 'Your own fabric') : ALL[look.style].label;
     sideEl.querySelectorAll('[data-side]').forEach((b) => { b.classList.toggle('active', b.dataset.side === side); b.disabled = !photos[b.dataset.side]; });
     const real = results.get(resultKey());
+    if (real && APIS.some((a) => real.startsWith(a))) img.crossOrigin = 'anonymous'; else img.removeAttribute('crossorigin');
     img.src = real || p.url;
     // size the frame to the photo (2:3) inside the free space
     const availW = stage.clientWidth - 24, availH = stage.clientHeight - 64 - ($('.mr-bottom').offsetHeight || 300) - 8;
@@ -482,6 +485,7 @@ export function initMirror({ onStage, toast }) {
     // The person's own photo is shown as it is. The drawn sketch appears only when asked for,
     // for their own fabric, or when no real try-on is possible.
     const drawn = !real && G && (!fab || cloth) && (sketch || fab || !canReal);
+    lastDrawn = !!drawn;
     if (drawn) { dctx.setTransform(dpr, 0, 0, dpr, 0, 0); paintOutfit(dctx, fw, fh, (i) => [p.lm[i].x * fw, p.lm[i].y * fh], side === 'back'); }
     subEl.textContent = fab && !cloth ? 'Add your fabric below' : real ? 'On you' : drawn ? 'Quick sketch' : 'Your photo';
     realBtn.hidden = !API || !!real || (fab && !cloth);
@@ -518,13 +522,14 @@ export function initMirror({ onStage, toast }) {
     const person = p.canvas.toDataURL('image/jpeg', 0.9);
     // fabric: the server first stitches a suit from the fabric (kept for the other photo), then puts it on the person
     const payload = fab
-      ? { person, side, ...(stitched.has(sKey) ? { garment: stitched.get(sKey) } : { fabric: cloth.data, stitch }) }
-      : { person, garment: photoUrl(look.style, 800), style: look.style, side };
+      ? { person, side, visitor: visitorId(), ...(stitched.has(sKey) ? { garment: stitched.get(sKey) } : { fabric: cloth.data, stitch }) }
+      : { person, garment: photoUrl(look.style, 800), style: look.style, side, visitor: visitorId() };
     const slow = fab && !stitched.has(sKey);
-    const say = (b, small) => { busy.querySelector('b').textContent = b; busy.querySelector('small').textContent = small; };
+    // a request that belongs to photos already retaken or closed must not touch the screen
+    const say = (b, small) => { if (mine !== session) return; busy.querySelector('b').textContent = b; busy.querySelector('small').textContent = small; };
     notice = '';
     say('Connecting…', '');
-    busy.hidden = false; realBtn.disabled = true;
+    busy.hidden = false; realBtn.disabled = true; stage.classList.add('is-busy');
     const ctl = new AbortController();
     let timer = 0, why = '', code = '';
     const began = performance.now();
@@ -536,7 +541,7 @@ export function initMirror({ onStage, toast }) {
       API = api;
       // 2. send the photo; give up with a clear message instead of spinning for ever
       say(slow ? 'Stitching your suit' : 'Making your picture', 'seconds');
-      startClock(slow ? 40 : 20);
+      if (mine === session) startClock(slow ? 40 : 20);
       timer = setTimeout(() => ctl.abort(), slow ? 150000 : 90000);
       const r = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -557,7 +562,8 @@ export function initMirror({ onStage, toast }) {
       } else {
         count();
         // 3. make sure the finished picture really opens on this connection; if not, fetch it through our server
-        stopClock(); say('Almost there…', '');
+        if (mine === session) stopClock();
+        say('Almost there…', '');
         const viaUs = `${API}?img=${encodeURIComponent(data.image)}`;
         const shown = (await loads(data.image)) ? data.image : (await loads(viaUs)) ? viaUs : '';
         if (!shown) { code = 'result_no_load'; why = 'Your picture was made, but it would not load on this internet connection. Switch between Wi-Fi and mobile data and try again.'; throw new Error('result did not load'); }
@@ -578,7 +584,7 @@ export function initMirror({ onStage, toast }) {
     clearTimeout(timer);
     if (mine !== session) return;
     stopClock();
-    busy.hidden = true;
+    busy.hidden = true; stage.classList.remove('is-busy');
     if (stage.classList.contains('open') && stage.dataset.mode === 'looks') show();
   }
 
@@ -607,7 +613,7 @@ export function initMirror({ onStage, toast }) {
     const out = document.createElement('canvas'); out.width = p.canvas.width; out.height = p.canvas.height;
     const o = out.getContext('2d');
     o.drawImage(p.canvas, 0, 0);
-    if (G) paintOutfit(o, out.width, out.height, (i) => [p.lm[i].x * out.width, p.lm[i].y * out.height], side === 'back');
+    if (G && lastDrawn) paintOutfit(o, out.width, out.height, (i) => [p.lm[i].x * out.width, p.lm[i].y * out.height], side === 'back');
     out.toBlob((b) => (b ? download(b) : toast('Could not save the picture')), 'image/jpeg', 0.92);
   }
 

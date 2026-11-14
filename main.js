@@ -1,9 +1,9 @@
-import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=26';
-import { initCamera } from './camera.js?v=26';
-import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=26';
-import { initMirror } from './mirror.js?v=26';
-import { reportProblem } from './report.js?v=26';
-import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=26';
+import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=27';
+import { initCamera } from './camera.js?v=27';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=27';
+import { initMirror } from './mirror.js?v=27';
+import { reportProblem } from './report.js?v=27';
+import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=27';
 
 // code errors anywhere on the page are noted too (a few per visit at most)
 let pageErrors = 0;
@@ -61,7 +61,7 @@ let scene = null;
 // The shop front does not show the 3D studio, so the heavy 3D engine is not downloaded there.
 const SHOP_FRONT = document.body.classList.contains('shop-front');
 if (SHOP_FRONT) hideLoader();
-else import('./scene.js?v=26')
+else import('./scene.js?v=27')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();
@@ -280,7 +280,7 @@ function updateMeasures() {
 }
 function setMeasured(values, measured = true) {
   // a scan where chest and hips were never captured is only a guess from height: do not call it measured
-  if (!measured) { animateTo(values); return; }
+  if (!measured) { measuredLive = false; animateTo(values); return; } // a later guess must not pass as a camera scan
   measuredLive = true;
   animateTo(values);
   setMySize(recommendSize(values)?.size);
@@ -352,7 +352,7 @@ initCamera({
   setHeight: (h) => { exactHeight = h; $('#heightIn').value = heightBox(h); showFeet(); updateMeasures(); },
   onMeasured: setMeasured,
   onSave: () => profile.open(),
-  onTry: (size) => { setMySize(size); $(SHOP_FRONT ? '#shop' : '#studio').scrollIntoView({ behavior: 'smooth' }); },
+  onTry: (size, measured) => { if (measured !== false) setMySize(size); $(SHOP_FRONT ? '#shop' : '#studio').scrollIntoView({ behavior: 'smooth' }); },
   onStage: (open) => scene?.setActive(!open), // pause the 3D scene while the scan is full screen
   toast,
 });

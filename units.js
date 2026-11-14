@@ -33,7 +33,7 @@ export function heightText(cm) {
  */
 export function heightToCm(text) {
   const s = String(text).trim().toLowerCase().replace(',', '.');
-  const fi = /^(\d)\s*(?:ft|feet|foot|'|′)\s*(\d{1,2}(?:\.\d+)?)?\s*(?:in|inch|inches|"|″|'')?$/.exec(s) || /^(\d)\s+(\d{1,2})$/.exec(s);
+  const fi = /^(\d)\s*(?:ft|feet|foot|'|′|’|‘)\s*(\d{1,2}(?:\.\d+)?)?\s*(?:in|inch|inches|"|″|”|“|'')?$/.exec(s) || /^(\d)\s+(\d{1,2})$/.exec(s);
   if (fi) return (parseInt(fi[1], 10) * 12 + parseFloat(fi[2] || '0')) * 2.54;
   const v = parseFloat(s);
   if (!isFinite(v)) return NaN;

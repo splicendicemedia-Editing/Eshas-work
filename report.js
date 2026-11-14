@@ -6,9 +6,9 @@
 // time, and a random id made on this device (so ten notes from one phone are not counted as ten people).
 // If the server cannot be reached right now, the note waits on the device and is sent on a later visit.
 
-import { TRYON_API, TRYON_API_ALT } from './config.js?v=26';
+import { TRYON_API, TRYON_API_ALT } from './config.js?v=27';
 
-export const SITE_VERSION = '26';
+export const SITE_VERSION = '27';
 // on a developer machine the server address can be given as ?tryon=<url> for testing
 const LOCAL_API = location.hostname === 'localhost' && new URLSearchParams(location.search).get('tryon');
 const APIS = LOCAL_API ? LOCAL_API.split(',') : [TRYON_API, ...(TRYON_API_ALT || [])].filter(Boolean);
@@ -21,6 +21,7 @@ const store = {
 const rand = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, '0')).join('');
 const clip = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
+export function visitorId() { return visitor(); }
 function visitor() {
   let v = store.get(VKEY);
   if (!/^[0-9a-f]{12}$/.test(v || '')) { v = rand(6); store.set(VKEY, v); }
@@ -81,20 +82,28 @@ export function reportProblem(kind, msg = '', extra = null) {
 
 /** Send the waiting notes. Called by itself after a note, when the page opens and when the connection returns. */
 export async function sendProblems() {
-  if (sending || !APIS.length) return;
-  const q = waiting();
-  if (!q.length) return;
+  if (sending || !APIS.length || !waiting().length) return;
   sending = true;
-  for (const api of APIS) {
-    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
-    try {
-      const r = await fetch(api, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reports: q }), signal: ctl.signal, keepalive: true });
-      clearTimeout(timer);
-      // received (or refused for good): stop keeping these. A server error keeps them for next time.
-      if (r.status < 500) { const done = new Set(q.map((x) => x.id)); keep(waiting().filter((x) => !done.has(x.id))); break; }
-    } catch { clearTimeout(timer); /* not reachable now: try the next address, or later */ }
-  }
-  sending = false;
+  let delivered = false;
+  try {
+    // the server takes 10 notes at a time; keep going while there are more (also picks up notes added meanwhile)
+    for (let round = 0; round < 4; round++) {
+      const q = waiting().slice(0, 10);
+      if (!q.length) break;
+      delivered = false;
+      for (const api of APIS) {
+        const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
+        try {
+          const r = await fetch(api, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reports: q }), signal: ctl.signal, keepalive: true });
+          clearTimeout(timer);
+          // received (or refused for good): stop keeping these. A server error keeps them for next time.
+          if (r.status < 500) { const done = new Set(q.map((x) => x.id)); keep(waiting().filter((x) => !done.has(x.id))); delivered = true; break; }
+        } catch { clearTimeout(timer); /* not reachable now: try the next address, or later */ }
+      }
+      if (!delivered) break;
+    }
+  } finally { sending = false; }
+  if (delivered && waiting().length) setTimeout(sendProblems, 1500);
 }
 
 setTimeout(sendProblems, 4000);

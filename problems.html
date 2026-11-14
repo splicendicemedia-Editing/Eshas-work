@@ -72,7 +72,7 @@
 </main>
 
 <script type="module">
-  import { TRYON_API, TRYON_API_ALT } from './config.js?v=26';
+  import { TRYON_API, TRYON_API_ALT } from './config.js?v=27';
   const LOCAL_API = location.hostname === 'localhost' && new URLSearchParams(location.search).get('tryon');
   const APIS = LOCAL_API ? LOCAL_API.split(',') : [TRYON_API, ...(TRYON_API_ALT || [])].filter(Boolean);
   const $ = (s) => document.querySelector(s);
@@ -100,6 +100,7 @@
     'scan.tracker_load': ['Body tracker did not load (body scan)', 'Slow internet or a download problem.'],
     'scan.tracker_crash': ['Body tracker stopped working (body scan)', 'The phone could not run the tracker. Note the phone type.'],
     'scan.step_stuck': ['Visitor was stuck on a scan step for 40 seconds', 'The message shows the hint they kept seeing. This is where the scan is too strict or unclear.'],
+    'scan.turn_not_used': ['The turn-around step could not be used', 'The person skipped the turn or turned too fast, so chest, waist and hips came from the front view and height.'],
     'scan.steps_skipped': ['Visitor skipped scan steps', 'Those measurements were estimated from height.'],
     'scan.value_limited': ['A measurement came out far from usual and was limited', 'Loose clothes or things behind the person. If it repeats, the measuring needs tuning.'],
     'scan.size_guessed': ['Scan finished without a real chest and hips measurement', 'The size shown was guessed from height only.'],

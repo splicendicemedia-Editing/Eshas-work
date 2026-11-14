@@ -49,7 +49,7 @@ export function measureFrame(lm, mask, o) {
   const swN = Math.abs(lm[11].x - lm[12].x);
   const ratio = (swN * vw) / (T * vh);
   const faceVis = Math.max(lm[0].visibility, lm[2].visibility, lm[5].visibility);
-  f.orient = ratio < 0.42 ? 'side' : ratio > 0.58 ? (lm[11].x > lm[12].x && faceVis > 0.5 ? 'front' : 'back') : 'turning';
+  f.orient = ratio < 0.42 ? 'side' : ratio > 0.5 ? (lm[11].x > lm[12].x && faceVis > 0.5 ? 'front' : 'back') : 'turning';
   f.dir = lm[0].x > hx ? 1 : -1;
   const isSide = f.orient === 'side';
 
@@ -89,6 +89,11 @@ export function measureFrame(lm, mask, o) {
     if (yy >= yFootStop && yy < mh - 1 && rowHas(yy + 1, fx0, fx1)) { f.bleed.push('floor'); yy = py(footY + 0.03 * T); }
     bottom = Math.max(bottom ?? 0, (yy + 1) / mh);
   }
+  // The outline ends at the toe tips. Toes point at the camera, so they sit lower in the picture than
+  // the floor under the body. That made the person look taller in pixels and every measurement a
+  // few per cent too small. The heels mark where the body actually stands.
+  const heels = [29, 30].filter(vis).map((i) => lm[i].y);
+  if (bottom != null && heels.length) bottom = Math.min(bottom, Math.max(...heels) + 0.02 * T);
   f.ext = top != null && bottom != null ? { top, bottom } : null;
   const ext = f.ext;
   const frac = ext ? ext.bottom - ext.top : 0;
@@ -186,7 +191,8 @@ export function measureFrame(lm, mask, o) {
   };
   const cm = {};
   for (const k of ROW_KEYS) {
-    const [aL, aR] = k === 'neck' || k === 'thigh' ? [null, null] : armLimits(rows[k][0], rows[k][1]);
+    // hands hang at thigh height, so the thigh needs the arms kept out too
+    const [aL, aR] = k === 'neck' ? [null, null] : armLimits(rows[k][0], rows[k][1]);
     let r = run(mask, mw, mh, rows[k][0], rows[k][1], HALF[k] * unit, aL, aR);
     if (k === 'neck') {
       // the neck is the narrowest place between the jaw and the shoulders; a single fixed line sat
@@ -376,7 +382,10 @@ export function fromTurn(samples, scale) {
   if (!scale || !scale.cmPx || samples.length < 12) return out;
   const rs = samples.map((s) => s.ratio).sort((a, b) => a - b);
   const q = (p) => rs[Math.min(rs.length - 1, Math.floor(p * rs.length))];
-  const rMax = q(0.95), rMin = Math.min(q(0.03), 0.6 * rMax); // side-on shoulders still show some width; an unfinished turn must not count its narrowest moment as side-on
+  // side-on shoulders still show some width; an unfinished turn must not count its narrowest moment as side-on
+  const rMax = q(0.95), rLow = q(0.03), rMin = Math.min(rLow, 0.6 * rMax);
+  const sawSide = rLow < 0.55 * rMax;
+  const mid = (v) => { const s = [...v].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; }; // one bad frame cannot move a middle value
   // 0 = facing or back to the camera, 90 = side-on
   const yaw = (s) => Math.acos(clamp((s.ratio - rMin) / Math.max(1e-6, rMax - rMin), 0, 1)) * 180 / Math.PI;
   const NB = 9; // 10-degree steps
@@ -389,13 +398,13 @@ export function fromTurn(samples, scale) {
       const b = Math.min(NB - 1, Math.floor(yaw(s) / (90 / NB)));
       bin[b].push(s.px[k] * scale.cmPx * (scale.leg / s.leg)); // same size reference as the front view, even if they stepped nearer
     }
-    const m = bin.map((v) => (v.length ? v.reduce((x, y) => x + y, 0) / v.length : null));
+    const m = bin.map((v) => (v.length ? mid(v) : null));
     const filled = m.filter((v) => v != null).length;
     fewest = Math.min(fewest, filled);
     // side-on depth. With the arms hanging, an arm in front of the stomach or behind the back adds
     // to some side-on frames, so the lower readings are the body itself.
     const sideAll = [...bin[8], ...(bin[8].length >= 3 ? [] : bin[7])].sort((x, y) => x - y);
-    const side = !sideAll.length ? null : out.armsUp ? sideAll.reduce((x, y) => x + y, 0) / sideAll.length : sideAll[Math.floor(sideAll.length * 0.25)];
+    const side = !sideAll.length || !sawSide ? null : out.armsUp ? sideAll.reduce((x, y) => x + y, 0) / sideAll.length : sideAll[Math.floor(sideAll.length * 0.25)];
     if (side != null) out.depth[k] = side;
     if (out.armsUp && filled >= 7 && (m[0] ?? m[1]) != null && side != null) {
       // fill a missing step from its neighbours

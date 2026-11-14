@@ -7,10 +7,10 @@
 //   stored or uploaded; the camera is switched off and cleared when the scan ends.
 // - The measuring maths (incl. protection against background objects) lives in measure.js.
 
-import { measureFrame, combine, turnWidths, fromTurn, ROW_KEYS } from './measure.js?v=26';
-import { recommendSize, whoFor, setWhoFor } from './profile.js?v=26';
-import { reportProblem } from './report.js?v=26';
-import { UNIT, fmtLen, withUnit, heightText, useUnits, heightToCm, heightBox } from './units.js?v=26';
+import { measureFrame, combine, turnWidths, fromTurn, ROW_KEYS } from './measure.js?v=27';
+import { recommendSize, whoFor, setWhoFor } from './profile.js?v=27';
+import { reportProblem } from './report.js?v=27';
+import { UNIT, fmtLen, withUnit, heightText, useUnits, heightToCm, heightBox } from './units.js?v=27';
 
 const $ = (s) => document.querySelector(s);
 const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
@@ -23,7 +23,7 @@ const LIVE_KEYS = [['height', 'Height'], ['bust', 'Chest / bust'], ['waist', 'Wa
 
 const PHASES = [
   { id: 'ready', title: 'Step back', sub: 'Head to toe in the picture',
-    say: 'Stand your phone up at waist height, then step back about two metres, so I can see you from head to toe.' },
+    say: 'Stand your phone up at waist height, then take about three big steps back, so I can see you from head to toe.' },
   { id: 'front', need: 'front', hold: 36, arms: true, title: 'Face the camera', sub: 'Stand relaxed and hold still',
     say: 'Face the camera, stand relaxed, and hold still.' },
   { id: 'spin', turn: true, title: 'Turn around slowly', sub: 'One full turn · hands on your head',
@@ -32,7 +32,7 @@ const PHASES = [
 ];
 const STEP_NAME = { front: 'Front', spin: 'Turn', side1: 'Side', back: 'Back', side2: 'Other side' };
 const CAM_KEY = 'mirra.cam'; // 'user' (front camera) or 'environment' (back camera, someone else holds the phone)
-const READY_SAY_REAR = 'Hold the phone upright at about waist height, two metres away, so I can see the whole person from head to toe.';
+const READY_SAY_REAR = 'Hold the phone upright at about waist height, three big steps away, so I can see the whole person from head to toe.';
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
@@ -116,7 +116,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   allow.addEventListener('click', () => {
     const h = readHeight();
     if (!(h >= 130 && h <= 215)) {
-      hErr.textContent = unit === 'cm' ? 'Please enter a height between 1.30 and 2.15 m' : 'Please enter a height between 4 ft 3 in and 7 ft 1 in';
+      hErr.textContent = unit === 'cm' ? 'Please enter a height between 1.30 and 2.15 m' : 'Please enter a height between 4 ft 4 in and 7 ft 0 in';
       (unit === 'cm' ? hCm : hFt).focus();
       return;
     }
@@ -132,8 +132,8 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   $('#ssClose').addEventListener('click', closeStage);
   $('#ssAgain').addEventListener('click', () => start());
   $('#ssSaveProfile').addEventListener('click', () => { closeStage(); onSave(); });
-  $('#ssTry').addEventListener('click', () => { closeStage(); onTry && onTry(lastResult?.size?.size); });
-  skipBtn.addEventListener('click', () => { capture(PHASES[pi], true); nextPhase(); });
+  $('#ssTry').addEventListener('click', () => { closeStage(); onTry && onTry(lastResult?.size?.size, !!lastResult?.measured); });
+  skipBtn.addEventListener('click', () => { if (!stream) return; capture(PHASES[pi], true); nextPhase(); }); // nothing to skip once the camera is off
   voiceBtn.addEventListener('click', () => {
     voiceOn = !voiceOn; voiceBtn.setAttribute('aria-pressed', voiceOn); voiceBtn.classList.toggle('on', voiceOn);
     if (!voiceOn) window.speechSynthesis?.cancel();
@@ -251,7 +251,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     await video.play().catch(() => {});
     if (run !== camRun) return;
     // the step being measured starts again with the new camera; finished steps are kept
-    hold = 0; samples = []; prevHip = null; stillCount = 0; lastT = -1; phaseStart = performance.now();
+    hold = 0; samples = []; scales = []; prevHip = null; stillCount = 0; lastT = -1; phaseStart = performance.now();
     setRing(0);
     loop();
   }
@@ -269,6 +269,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
   }
 
   function resetScan() {
+    skipBtn.hidden = true;
     scales = []; scaleRef = null; spin = []; spinStage = 0; turnRes = null; lastLm = null; spinMax = 0; spinArmed = 0; armsUpRun = 0;
     pi = 0; hold = 0; samples = []; side1Dir = 0; captured = {}; liveW = {}; liveD = {}; liveLen = {}; lastResult = null;
     prevHip = null; stillCount = 0; frameNo = 0; lastT = -1; lastHint = ''; phoneTilt = null;
@@ -422,7 +423,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
 
     let hint = '';
     if (!f.present) hint = envHint;
-    else if (!match) hint = f.orient === 'turning' ? 'Keep turning slowly…' : ph.title;
+    else if (!match) hint = f.orient === 'turning' ? (ph.need === 'front' ? 'Turn to face the camera' : 'Keep turning slowly…') : ph.title;
     else if (!envOk) hint = envHint;
     else if (ph.arms && !c.arms) hint = 'Hands by your sides, not in front of you';
     else if (!c.still) hint = 'Hold still…';
@@ -443,13 +444,15 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     let hint = '';
     if (!f.present) hint = 'Stay in the picture, head to toe';
     else if (!f.checks.light) hint = f.lightHint;
-    else if (t && !spinArmed) {
+    else if (!t) hint = 'Stay in the picture, head to toe';
+    else if (!spinArmed) {
       // wait for the hands to go up (it keeps the arms out of the measurement); after 10 seconds carry on anyway
       armsUpRun = t.armsUp ? armsUpRun + 1 : 0;
       if (armsUpRun >= 6 || now - phaseStart > 10000) { spinArmed = now; speak('Now turn all the way around, slowly.', true); }
-    } else if (t) {
+    } else {
       spin.push(t);
-      spinMax = Math.max(spinMax, t.ratio);
+      // the widest this person looks, ignoring the odd glitched frame
+      if (spin.length < 8 || spin.length % 3 === 0) { const rs = spin.map((s) => s.ratio).sort((a, b) => a - b); spinMax = rs[Math.floor(rs.length * 0.9)]; }
       const at = t.ratio > 0.8 * spinMax ? 'wide' : t.ratio < 0.55 * spinMax ? 'narrow' : '';
       if (spin.length > 5 && at === SEQ[spinStage + 1]) spinStage++;
       if (spinStage === 0 && now - spinArmed > 5000) hint = 'Turn around, slowly';
@@ -507,7 +510,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
       const em = li.querySelector('em'); if (em) em.textContent = ok ? '' : hint || '';
     };
     set('body', f.checks.body, f.bodyHint || 'Step into view');
-    set('distance', f.checks.distance, f.distHint || 'Stand about 2 m away');
+    set('distance', f.checks.distance, f.distHint || 'Step back about 3 big steps');
     set('upright', f.checks.upright, f.uprightHint);
     set('background', f.checks.background, f.bgHint);
     set('light', f.checks.light, f.lightHint);
@@ -596,6 +599,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     // only claim a measured size when chest and hips were really captured (front view, or all the way round in the turn)
     const fb = [captured.front, captured.back].filter((c) => c && !c.skipped);
     const measured = (fb.some((c) => c.bust) && fb.some((c) => c.hips)) || !!(turnRes && turnRes.mode === 'around');
+    lastResult.measured = measured;
     const label = who === 'men' ? 'Men’s size' : 'Women’s size';
     $('#ssSize').innerHTML = !size ? '<small>Your measurements</small>'
       : measured ? `<small>${label}</small><b>${size.size}</b><span>EU ${size.eu} · based on your ${who === 'men' ? 'chest and waist' : 'chest, waist and hips'}</span>`
@@ -632,7 +636,7 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     lctx.clearRect(0, 0, 40, 24);
     removeEventListener('deviceorientation', onOrient);
     wakeLock?.release?.().catch?.(() => {}); wakeLock = null;
-    turnEl.classList.remove('show'); setHint('');
+    turnEl.classList.remove('show'); setHint(''); skipBtn.hidden = true;
   }
 
   // never leave the camera running in the background

@@ -930,3 +930,7 @@ body.shop-front #scene, body.shop-front .scene-fallback, body.shop-front .scene-
 .who-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--bg-2); margin: 14px 0 4px; }
 .who-pick button { height: 42px; border-radius: 999px; font-size: 15px; color: var(--ink-2); }
 .who-pick button.on { background: var(--ink); color: var(--bg); font-weight: 600; }
+
+/* while a real picture is being made, the outfit pickers wait */
+.mirror-stage.is-busy .mr-tabs, .mirror-stage.is-busy .mr-colors, .mirror-stage.is-busy .mr-rail, .mirror-stage.is-busy .mr-fabric,
+.mirror-stage.is-busy .mr-seg, .mirror-stage.is-busy .mr-chip { pointer-events: none; opacity: .45; }
