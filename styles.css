@@ -946,6 +946,8 @@ body.shop-front #scene, body.shop-front .scene-fallback, body.shop-front .scene-
 .plan-main { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
 .plan small { font-size: 12.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
 .plan b { font-family: var(--serif); font-weight: 400; font-size: 26px; line-height: 1.15; }
+.plan-price { margin: 0; font-size: 15px; color: var(--ink-2); }
+.plan-price strong { font-size: 22px; font-weight: 700; color: var(--ink); margin-right: 2px; }
 .plan ul { list-style: none; margin: 4px 0 8px; padding: 0; display: grid; gap: 6px; color: var(--ink-2); font-size: 15px; }
 .plan li::before { content: '✓  '; color: var(--good); font-weight: 700; }
 .plan .btn { justify-self: start; height: 46px; margin-top: auto; }
