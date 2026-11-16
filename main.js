@@ -1,9 +1,9 @@
-import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=28';
-import { initCamera } from './camera.js?v=28';
-import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=28';
-import { initMirror } from './mirror.js?v=28';
-import { reportProblem } from './report.js?v=28';
-import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=28';
+import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=29';
+import { initCamera } from './camera.js?v=29';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=29';
+import { initMirror } from './mirror.js?v=29';
+import { reportProblem } from './report.js?v=29';
+import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=29';
 
 // code errors anywhere on the page are noted too (a few per visit at most)
 let pageErrors = 0;
@@ -61,7 +61,7 @@ let scene = null;
 // The shop front does not show the 3D studio, so the heavy 3D engine is not downloaded there.
 const SHOP_FRONT = document.body.classList.contains('shop-front');
 if (SHOP_FRONT) hideLoader();
-else import('./scene.js?v=28')
+else import('./scene.js?v=29')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();

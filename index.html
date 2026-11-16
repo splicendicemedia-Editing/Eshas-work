@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Miraal — Your Fitting Room, Everywhere</title>
   <meta name="description" content="Miraal is a virtual fitting room: measure your body with your phone camera in 30 seconds and try on any outfit in realistic 3D before you buy.">
@@ -9,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=28">
+  <link rel="stylesheet" href="styles.css?v=29">
   <script type="importmap">
     { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -392,7 +393,7 @@
         </div>
         <div class="faq-list reveal">
           <details open><summary>How does it work?</summary><p>Pick an outfit, take a photo, and in about 20 seconds you see it on you.</p></details>
-          <details><summary>Is my photo kept?</summary><p>No. It is sent to our try-on partner to make your picture. Miraal does not keep it.</p></details>
+          <details><summary>Is my photo kept?</summary><p>Miraal does not keep it. To make your picture, your photo is sent to our try-on partner (fal.ai), which handles it under its own terms and may hold it for a time.</p></details>
           <details><summary>How many outfits can I try?</summary><p>5 free try-ons a day.</p></details>
           <details><summary>How do I find my size?</summary><p>Tap Find my size, enter your height, face the camera, then turn around once with your hands on your head. It takes about 30 seconds. Sizes are estimates.</p></details>
           <details><summary>Which sizes do you show?</summary><p>European sizes, with the UK and US size next to them. For men you also get a trouser waist.</p></details>
@@ -655,7 +656,7 @@
         <li><span><b>We do not keep your picture.</b> No photo or video is saved — ever.</span></li>
         <li><span><b>Deleted right after you try it.</b> The camera switches off and every frame is discarded as soon as the scan ends.</span></li>
         <li><span><b>Stays on your device.</b> Body tracking runs inside your browser. Nothing is uploaded.</span></li>
-        <li><span><b>If something goes wrong,</b> a short note is sent so we can fix it: what failed, your phone type and your internet provider. Never a picture.</span></li>
+        <li><span><b>If something goes wrong,</b> a short note is sent so we can fix it: what failed, your phone and browser type, your country and internet provider, and a random number for this phone. Never a picture.</span></li>
         <li><span><b>Only numbers remain</b> — and only if you choose to save them to your profile.</span></li>
       </ul>
 
@@ -694,6 +695,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="main.js?v=28"></script>
+  <script type="module" src="main.js?v=29"></script>
 </body>
 </html>

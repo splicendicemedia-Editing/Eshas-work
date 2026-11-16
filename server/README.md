@@ -51,7 +51,7 @@ When something goes wrong for a visitor, the site sends a short text note to thi
 To read them, open `problems.html` on the site and enter your private code. To set the code:
 
 1. In Cloudflare open the Worker `miraal-tryon`, then "Settings", then "Variables and Secrets", then "Add".
-2. Type: Secret. Name: `ADMIN_KEY`. Value: a code you choose, at least 8 characters. Do not share it or paste it into a chat.
+2. Type: Secret. Name: `ADMIN_KEY`. Value: a code you choose, at least 12 characters (a few random words work well). Do not share it or paste it into a chat.
 3. Save and deploy.
 
 Without `ADMIN_KEY` the notes are still stored, but nobody can read them through the page.
@@ -60,4 +60,4 @@ Without `ADMIN_KEY` the notes are still stored, but nobody can read them through
 
 The server stops making real pictures once 300 have been made in one day by everyone together, so a script or a busy day cannot run up a large fal.ai bill. To change the number, add a Text variable `DAILY_BUDGET` in the Worker's settings (for example `600`). At about $0.075 a picture, 300 is at most about $22 a day.
 
-Each phone gets 5 a day, and one network address gets at most 30.
+Each phone gets 5 a day, and one network gets at most 30. The counters live in the D1 database (`DB`); without it the server makes no paid pictures.
