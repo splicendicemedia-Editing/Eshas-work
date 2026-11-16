@@ -1,9 +1,10 @@
-import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=30';
-import { initCamera } from './camera.js?v=30';
-import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=30';
-import { initMirror } from './mirror.js?v=30';
-import { reportProblem } from './report.js?v=30';
-import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=30';
+import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=31';
+import { initCamera } from './camera.js?v=31';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=31';
+import { initMirror } from './mirror.js?v=31';
+import { reportProblem } from './report.js?v=31';
+import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=31';
+import { currentStore } from './stores.js?v=31';
 
 // code errors anywhere on the page are noted too (a few per visit at most)
 let pageErrors = 0;
@@ -61,7 +62,7 @@ let scene = null;
 // The shop front does not show the 3D studio, so the heavy 3D engine is not downloaded there.
 const SHOP_FRONT = document.body.classList.contains('shop-front');
 if (SHOP_FRONT) hideLoader();
-else import('./scene.js?v=30')
+else import('./scene.js?v=31')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();
@@ -91,10 +92,28 @@ function observeStates() {
 const mirror = initMirror({ onStage: (open) => scene?.setActive(!open), toast });
 
 /* ---------------- shop front: tap an outfit to try it on ---------------- */
+// A store's own link (?store=<id>) shows only that store's fabrics.
+const SHOP = currentStore();
+if (SHOP) {
+  document.body.classList.add('in-store');
+  document.title = `${SHOP.name} · Miraal`;
+  const tag = $('#shopStore'); if (tag) { tag.textContent = SHOP.city ? `${SHOP.name} · ${SHOP.city}` : SHOP.name; tag.hidden = false; }
+  const set = (sel, t) => { const el = $(sel); if (el) el.textContent = t; };
+  set('#shopH1', 'See our fabric stitched, on you.');
+  set('#shopLead', 'Pick a fabric. Choose the stitching. See the suit on your own photo in about a minute.');
+  set('#shopTry', 'Try our fabrics');
+  set('#shopSub', 'Our fabrics');
+}
 let shopFor = 'women';
 function renderShop() {
   const grid = $('#shopGrid');
   if (!grid) return;
+  if (SHOP) {
+    grid.innerHTML = SHOP.fabrics.map((f, i) => `<button class="shop-card" type="button" data-fab="${i}">
+      <img src="${f.url}" alt="${f.name}" loading="lazy" decoding="async">
+      <span class="info"><small>Unstitched</small><b>${f.name}</b><i>Try it stitched</i></span></button>`).join('');
+    return;
+  }
   $$('#shopTabs [data-for]').forEach((b) => { const on = b.dataset.for === shopFor; b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on)); });
   const fabricCard = `<button class="shop-card shop-fabric" type="button" data-shop="fabric">
       <span class="fab-art" aria-hidden="true"></span>
@@ -106,6 +125,8 @@ function renderShop() {
 }
 $('#shopTabs')?.addEventListener('click', (e) => { const b = e.target.closest('[data-for]'); if (b) { shopFor = b.dataset.for; renderShop(); } });
 $('#shopGrid')?.addEventListener('click', (e) => {
+  const f = e.target.closest('[data-fab]');
+  if (f) { mirror.open(null, 'fabric', +f.dataset.fab); return; }
   const b = e.target.closest('[data-shop]');
   if (!b) return;
   if (b.dataset.shop === 'fabric') mirror.open(null, 'fabric'); else mirror.open(lookFor(b.dataset.shop));

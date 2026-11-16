@@ -7,10 +7,11 @@
 //      and only after the person agreed to it on the start card).
 // Photos live in memory only and are wiped on Close.
 
-import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=30';
-import { getLandmarker } from './pose.js?v=30';
-import { TRYON_API, TRYON_API_ALT, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=30';
-import { reportProblem, sendProblems, visitorId } from './report.js?v=30';
+import { ALL, COLORS, STITCH, stitchedStyle, photoUrl, lookFor } from './catalog.js?v=31';
+import { getLandmarker } from './pose.js?v=31';
+import { TRYON_API, TRYON_API_ALT, DAILY_LIMIT, TRYON_PARTNER } from './config.js?v=31';
+import { reportProblem, sendProblems, visitorId } from './report.js?v=31';
+import { currentStore, buyLink } from './stores.js?v=31';
 
 const $ = (s) => document.querySelector(s);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -72,7 +73,8 @@ export function initMirror({ onStage, toast }) {
   let photos = { front: null, back: null };   // { canvas, lm, url }
   let side = 'front';
   let tab = 'women';                             // 'women' | 'men' | 'fabric'
-  let cloth = null;                              // the customer's fabric: { tile, data, avg, id }
+  let cloth = null;                              // the customer's fabric: { tile, data, avg, id, name }
+  const shop = currentStore();                   // the store whose link was opened, or null
   let stitch = { wearer: 'men', neck: 'gol', bottom: 'shalwar' };
   const stitched = new Map();                    // fabric + stitching -> stitched suit picture made by the AI
   const results = new Map();                    // `${side}|${style}` -> picture address
@@ -95,7 +97,9 @@ export function initMirror({ onStage, toast }) {
       .map(([k, v]) => `<button type="button" data-style="${k}"><img src="${photoUrl(k, 124)}" alt="" loading="lazy">${v.label}</button>`).join('');
   }
   function setTab(t) {
+    if (shop) t = 'fabric';
     tab = t; stage.dataset.tab = t;
+    if (shop && !cloth && storeFab < 0) pickStoreFabric(0);
     tabsEl.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     if (tab !== 'fabric') {
       renderRail();
@@ -114,10 +118,30 @@ export function initMirror({ onStage, toast }) {
     row.addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; stitch = { ...stitch, [k]: b.dataset.v }; syncStitch(); show(); });
   });
   syncStitch();
+  // a store's own fabrics: tap one instead of uploading a photo
+  const storeFabs = $('#mrStoreFabs');
+  let storeFab = -1;
+  if (shop) {
+    stage.classList.add('in-store');
+    storeFabs.hidden = false;
+    storeFabs.innerHTML = shop.fabrics.map((f, i) => `<button type="button" data-fab="${i}" aria-label="${f.name}"><img src="${f.url}" alt="" loading="lazy"><span>${f.name}</span></button>`).join('');
+    storeFabs.addEventListener('click', (e) => { const b = e.target.closest('[data-fab]'); if (b) pickStoreFabric(+b.dataset.fab); });
+    $('#mrFabUpload').textContent = 'Or upload a photo';
+    $('#mrFabUpload').classList.replace('btn-primary', 'btn-ghost');
+  }
+  function pickStoreFabric(i) {
+    if (!shop || !shop.fabrics[i]) return;
+    storeFab = i;
+    storeFabs.querySelectorAll('[data-fab]').forEach((b) => b.classList.toggle('active', +b.dataset.fab === i));
+    loadCloth(shop.fabrics[i].url, false, shop.fabrics[i].name);
+  }
   $('#mrFabUpload').addEventListener('click', () => $('#mrFabFile').click());
-  $('#mrFabFile').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (f) loadCloth(URL.createObjectURL(f), true); e.target.value = ''; });
-  $('#mrFabUse').addEventListener('click', () => { const u = $('#mrFabUrl').value.trim(); if (/^https:\/\//i.test(u)) loadCloth(u, false); else toast('Paste a picture link that starts with https://'); });
-  function loadCloth(src, isBlob) {
+  $('#mrFabFile').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (f) { markOwn(); loadCloth(URL.createObjectURL(f), true); } e.target.value = ''; });
+  $('#mrFabUse').addEventListener('click', () => { const u = $('#mrFabUrl').value.trim(); if (/^https:\/\//i.test(u)) { markOwn(); loadCloth(u, false); } else toast('Paste a picture link that starts with https://'); });
+  function markOwn() { storeFab = -1; storeFabs.querySelectorAll('[data-fab]').forEach((b) => b.classList.remove('active')); }
+  let clothTicket = 0;                           // only the fabric tapped last may become the fabric
+  function loadCloth(src, isBlob, name = '') {
+    const ticket = ++clothTicket;
     const load = (url, cors) => new Promise((res, rej) => { const im = new Image(); if (cors) im.crossOrigin = 'anonymous'; im.onload = () => res(im); im.onerror = rej; im.src = url; });
     (async () => {
       let im;
@@ -135,7 +159,8 @@ export function initMirror({ onStage, toast }) {
       const one = document.createElement('canvas'); one.width = one.height = 1;
       const og = one.getContext('2d'); og.drawImage(tile, 0, 0, 1, 1);
       const [r, g, b] = og.getImageData(0, 0, 1, 1).data;
-      cloth = { tile, data, avg: `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`, id: String(Date.now()) };
+      if (ticket !== clothTicket) return;
+      cloth = { tile, data, avg: `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`, id: String(Date.now()), name };
       $('#mrFabThumb').src = data; $('#mrFabThumb').hidden = false;
       if (isBlob) URL.revokeObjectURL(src);
       if (stage.dataset.mode === 'looks') show();
@@ -159,8 +184,9 @@ export function initMirror({ onStage, toast }) {
 
   /* ---------- open / close ---------- */
   function setMode(m) { stage.dataset.mode = m; }
-  function open(startLook, startTab) {
+  function open(startLook, startTab, fabIndex) {
     if (startLook && !ALL[startLook.style]) startLook = null;
+    if (shop) { startLook = null; if (Number.isInteger(fabIndex) && fabIndex !== storeFab) pickStoreFabric(fabIndex); }
     autoReal = !!startLook; sketch = false;
     if (startLook) look = { ...lookFor(startLook.style), ...startLook };
     setTab(startTab || (ALL[look.style].gender === 'men' ? 'men' : 'women'));
@@ -256,7 +282,7 @@ export function initMirror({ onStage, toast }) {
     navigator.mediaDevices.enumerateDevices?.().then((d) => { flipBtn.hidden = d.filter((x) => x.kind === 'videoinput').length < 2; }).catch(() => {});
     statusEl.textContent = 'Getting ready… a few seconds the first time.';
     try {
-      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=30')]);
+      [landmarker, G] = await Promise.all([getLandmarker({ masks: false }), import('./scene.js?v=31')]);
     } catch (e) {
       console.warn('Try-on could not load', e);
       reportProblem('tryon.tracker_load', String(e && e.message || e));
@@ -467,7 +493,8 @@ export function initMirror({ onStage, toast }) {
     const p = photos[side];
     if (!p) return;
     const fab = custom();
-    nameEl.textContent = fab ? (cloth ? `${STITCH.wearer[stitch.wearer]} from your fabric` : 'Your own fabric') : ALL[look.style].label;
+    nameEl.textContent = fab ? (cloth ? (cloth.name ? `${STITCH.wearer[stitch.wearer]} in ${cloth.name}` : `${STITCH.wearer[stitch.wearer]} from your fabric`) : (shop ? 'Pick a fabric' : 'Your own fabric')) : ALL[look.style].label;
+    syncBuy(fab);
     sideEl.querySelectorAll('[data-side]').forEach((b) => { b.classList.toggle('active', b.dataset.side === side); b.disabled = !photos[b.dataset.side]; });
     const real = results.get(resultKey());
     if (real && APIS.some((a) => real.startsWith(a))) img.crossOrigin = 'anonymous'; else img.removeAttribute('crossorigin');
@@ -512,6 +539,13 @@ export function initMirror({ onStage, toast }) {
   function stopClock() { clearInterval(clock); clock = 0; busy.classList.remove('counting'); }
   sketchBtn.addEventListener('click', () => { sketch = !sketch; show(); });
 
+  // "Buy this fabric": straight to the store's WhatsApp (or email), with the fabric and stitching written out
+  const buyBtn = $('#mrBuy');
+  function syncBuy(fab) {
+    const href = shop && fab && cloth ? buyLink(shop, `Hello ${shop.name}, I tried ${cloth.name ? `"${cloth.name}"` : 'a fabric'} on Miraal, stitched as a ${STITCH.wearer[stitch.wearer].toLowerCase()} with ${STITCH.neck[stitch.neck].toLowerCase()} and ${STITCH.bottom[stitch.bottom].toLowerCase()}. I would like to buy it.`) : '';
+    buyBtn.hidden = !href;
+    if (href) buyBtn.href = href;
+  }
   async function makeReal() {
     const p = photos[side];
     if (!API || !p || leftToday() <= 0 || !busy.hidden) return;
@@ -522,8 +556,8 @@ export function initMirror({ onStage, toast }) {
     const person = p.canvas.toDataURL('image/jpeg', 0.9);
     // fabric: the server first stitches a suit from the fabric (kept for the other photo), then puts it on the person
     const payload = fab
-      ? { person, side, visitor: visitorId(), ...(stitched.has(sKey) ? { garment: stitched.get(sKey) } : { fabric: cloth.data, stitch }) }
-      : { person, garment: photoUrl(look.style, 800), style: look.style, side, visitor: visitorId() };
+      ? { person, side, visitor: visitorId(), ...(shop ? { store: shop.id } : {}), ...(stitched.has(sKey) ? { garment: stitched.get(sKey) } : { fabric: cloth.data, stitch }) }
+      : { person, garment: photoUrl(look.style, 800), style: look.style, side, visitor: visitorId(), ...(shop ? { store: shop.id } : {}) };
     const slow = fab && !stitched.has(sKey);
     // a request that belongs to photos already retaken or closed must not touch the screen
     const say = (b, small) => { if (mine !== session) return; busy.querySelector('b').textContent = b; busy.querySelector('small').textContent = small; };
@@ -591,7 +625,7 @@ export function initMirror({ onStage, toast }) {
   async function savePicture() {
     const p = photos[side]; if (!p) return;
     const real = results.get(resultKey());
-    const name = `miraal-${custom() ? 'my-fabric' : look.style}-${side}.jpg`;
+    const name = `miraal-${custom() ? (shop ? `${shop.id}-fabric` : 'my-fabric') : look.style}-${side}.jpg`;
     const save = (blob) => { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 60000); };
     // on an iPhone the share sheet (Save Image) is the way into the photo gallery; elsewhere a normal download
     const download = async (blob) => {

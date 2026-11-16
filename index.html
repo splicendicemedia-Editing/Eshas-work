@@ -54,14 +54,15 @@
     <section id="shop" class="solid shop">
       <div class="wrap">
         <div class="shop-head">
-          <h1>See your fabric stitched, on you.</h1>
-          <p>Add a photo of your unstitched fabric. Choose the stitching. See the suit on your own picture.</p>
+          <p class="shop-store" id="shopStore" hidden></p>
+          <h1 id="shopH1">See your fabric stitched, on you.</h1>
+          <p id="shopLead">Add a photo of your unstitched fabric. Choose the stitching. See the suit on your own picture.</p>
           <div class="shop-cta">
-            <button class="btn btn-primary" type="button" data-open-mirror="fabric">Try my fabric</button>
-            <a class="btn btn-ghost" href="#plans">For fabric and clothing stores</a>
+            <button class="btn btn-primary" type="button" data-open-mirror="fabric" id="shopTry">Try my fabric</button>
+            <a class="btn btn-ghost not-in-store" href="#plans">For fabric and clothing stores</a>
           </div>
         </div>
-        <h2 class="shop-sub">Or try a ready outfit</h2>
+        <h2 class="shop-sub" id="shopSub">Or try a ready outfit</h2>
         <div class="shop-bar">
           <div class="looks-tabs" id="shopTabs" role="tablist" aria-label="Shop for">
             <button type="button" role="tab" data-for="women" class="active">Women</button><button type="button" role="tab" data-for="men">Men</button>
@@ -566,6 +567,7 @@
       <div class="mr-colors" id="mrColors" aria-label="Colour"></div>
       <div class="mr-rail" id="mrRail" aria-label="Outfits"></div>
       <div class="mr-fabric" id="mrFabric" aria-label="Your own fabric">
+        <div class="mr-store-fabs" id="mrStoreFabs" hidden></div>
         <div class="mr-fab-pick">
           <img id="mrFabThumb" alt="Your fabric" hidden>
           <button class="btn btn-primary" id="mrFabUpload" type="button">Upload fabric photo</button>
@@ -580,6 +582,7 @@
       <div class="mr-actions">
         <button class="btn btn-ghost" id="mrRetake" type="button">Retake photos</button>
         <button class="btn btn-ghost" id="mrSave" type="button">Save picture</button>
+        <a class="btn btn-primary" id="mrBuy" href="#" target="_blank" rel="noopener" hidden>Buy this fabric</a>
       </div>
     </div>
 
@@ -695,6 +698,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="main.js?v=30"></script>
+  <script type="module" src="main.js?v=31"></script>
 </body>
 </html>

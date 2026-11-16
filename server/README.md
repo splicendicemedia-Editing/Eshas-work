@@ -44,6 +44,16 @@ When a visitor brings their own fabric picture and taps "See it for real", the s
 
 The server also fetches fabric pictures from shop links for the site (`GET ?img=<link>`), because many shops do not let a browser read their pictures directly. It only accepts https picture links, and only from the allowed site.
 
+## Store links
+
+Each store gets its own link, for example `https://splicendicemedia-editing.github.io/Eshas-work/?store=demo`.
+It shows only that store's fabrics, a "Buy this fabric" button to the store's WhatsApp (or email), and no pitch to stores.
+The counter poster with the QR code is at `poster.html?store=<id>`.
+
+To add a store: list it in `stores.js` with its fabric photos in `stores/<id>/`, add the same id to `STORES` near the top of
+`tryon-worker.js` (then deploy the Worker), and make its QR code with `python tools/make_qr.py` (needs `pip install segno==1.6.6`).
+Finished pictures from a store's link are counted per month and shown on the problems page under "Try-on pictures per store".
+
 ## Problem log
 
 When something goes wrong for a visitor, the site sends a short text note to this server (never a picture): what failed, where, the phone and browser type, the internet provider and country, and the time. The server also notes its own failures (the AI did not answer, a visitor reached the daily limit). Notes are kept for 60 days in a free Cloudflare D1 database called `miraal-problems`, connected to the Worker as `DB`.

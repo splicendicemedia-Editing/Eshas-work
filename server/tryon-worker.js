@@ -101,7 +101,7 @@ async function bump(env, keys, by = 1) {
   const day = new Date().toISOString().slice(0, 10);
   const st = env.DB.prepare('INSERT INTO counters (k, day, n) VALUES (?1, ?2, MAX(0, ?3)) ON CONFLICT(k) DO UPDATE SET n = MAX(0, n + ?3) RETURNING n');
   const res = await env.DB.batch(keys.map((k) => st.bind(k, day, by)));
-  if (Math.random() < 0.01) await env.DB.prepare('DELETE FROM counters WHERE day < ?').bind(new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 10)).run();
+  if (Math.random() < 0.01) await env.DB.prepare("DELETE FROM counters WHERE day < ? AND k NOT LIKE 'm:%'").bind(new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 10)).run();
   return res.map((r) => (r.results && r.results[0] ? r.results[0].n : 0));
 }
 // stitched-suit pictures are only accepted back if this server made them: the address carries a seal
@@ -111,6 +111,11 @@ const OUTFITS = new Set(['photo-1495385794356-15371f348c31', 'photo-151113055809
   'photo-1631084675579-20db768ae08a', 'photo-1707576618343-26a1b377ca7a', 'photo-1733209589578-97136bee7d7a', 'photo-1733470324488-d0e10d014d80', 'photo-1734418040900-e964f84e8abb',
   'photo-1760613130027-3959a3eb939c', 'photo-1762343039457-3f8ae1f9b063', 'photo-1763610452422-a24873594a0b', 'photo-1770359993283-a2c2f386584e', 'photo-1777713272516-e7b2216fe15e',
   'photo-1781106477318-b44ff46d7fdf', 'photo-1785651523544-b8ecbbfecebe', 'photo-1792007195205-dc9f0ba038e9']);
+
+// stores with their own Miraal link (stores.js on the site). Add the id here when a store is added there.
+const STORES = new Set(['demo']);
+// finished pictures per store per month, kept for the monthly count: m:YYYY-MM:store:<id>
+const storeKey = (id) => `m:${new Date().toISOString().slice(0, 7)}:store:${id}`;
 
 let tableReady = false;
 async function ensureTable(env) {
@@ -175,7 +180,10 @@ async function readProblems(env, request) {
   const now = new Date(), since = new Date(now.getTime() - 6 * 864e5).toISOString().slice(0, 10);
   const rows = (await env.DB.prepare('SELECT id, at, kind, msg, place, ver, device, net, isp, country, visitor, client_at, extra FROM problems ORDER BY id DESC LIMIT 300').all()).results;
   const byKind = (await env.DB.prepare('SELECT kind, COUNT(*) AS n, COUNT(DISTINCT visitor) AS people FROM problems WHERE day >= ? GROUP BY kind ORDER BY n DESC').bind(since).all()).results;
-  return [{ rows, byKind, now: now.toISOString() }, 200];
+  const months = [now.toISOString().slice(0, 7), new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 7)];
+  const stores = (await env.DB.prepare("SELECT k, n FROM counters WHERE k LIKE 'm:%:store:%' AND (k LIKE ? OR k LIKE ?) ORDER BY k DESC").bind(`m:${months[0]}:%`, `m:${months[1]}:%`).all().catch(() => ({ results: [] }))).results
+    .map((r) => { const [, month, , id] = String(r.k).split(':'); return { month, store: id, pictures: r.n }; });
+  return [{ rows, byKind, stores, now: now.toISOString() }, 200];
 }
 
 const isFalMedia = (h) => h === 'fal.media' || h.endsWith('.fal.media') || h === 'cdn.fashn.ai';
@@ -300,6 +308,7 @@ export default {
     if (!env.DB) return json({ error: 'The try-on server is not fully set up yet' }, 503);
     const day = new Date().toISOString().slice(0, 10), net = netOf(request);
     const vid = typeof body.visitor === 'string' && /^[0-9a-f]{12}$/.test(body.visitor) ? body.visitor : '';
+    const storeId = typeof body.store === 'string' && STORES.has(body.store) ? body.store : '';
     // three counters: this phone, this network, and everyone together
     const keys = [`${day}:v:${await hashOf(net, vid)}`, `${day}:n:${await hashOf(net)}`, `${day}:all`];
     let counts;
@@ -336,6 +345,8 @@ export default {
         await refund();
         return json({ error: 'The try-on service could not make this picture', status: worn.status }, 502);
       }
+      // one finished picture for the store whose link was used
+      if (storeId) await bump(env, [storeKey(storeId)]).catch(() => {});
       return json({ image, garment: await sealed(stitchedUrl), left });
     } catch (e) {
       note('server.ai_unreachable', clip(String((e && e.message) || e), 200), wantsStitch ? 'Fabric' : 'Outfit');

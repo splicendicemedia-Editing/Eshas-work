@@ -1,5 +1,5 @@
 // The owner's problems page. The private code is kept in memory only: it is gone when the tab closes.
-import { TRYON_API, TRYON_API_ALT } from './config.js?v=30';
+import { TRYON_API, TRYON_API_ALT } from './config.js?v=31';
 const LOCAL_API = location.hostname === 'localhost' && new URLSearchParams(location.search).get('tryon');
 const APIS = LOCAL_API ? LOCAL_API.split(',') : [TRYON_API, ...(TRYON_API_ALT || [])].filter(Boolean);
 const $ = (s) => document.querySelector(s);
@@ -58,6 +58,9 @@ function show() {
   ].map(([n, l]) => `<div class="card tile"><b>${n}</b><span>${l}</span></div>`).join('');
   $('#kinds').innerHTML = kinds.length ? kinds.map((k) => `<div class="kind"><b>${esc(name(k.kind))}</b><em>${k.n} ${k.n === 1 ? 'time' : 'times'} · ${k.people} ${k.people === 1 ? 'phone' : 'phones'}</em><small>${esc((KINDS[k.kind] || [])[1] || '')}</small></div>`).join('')
     : '<p class="sub">Nothing in the last 7 days.</p>';
+  const stores = data.stores || [];
+  $('#stores').innerHTML = stores.length ? stores.map((s) => `<div class="kind"><b>${esc(String(s.store))}</b><em>${Number(s.pictures)} ${Number(s.pictures) === 1 ? 'picture' : 'pictures'}</em><small>${esc(String(s.month))}</small></div>`).join('')
+    : '<p class="sub">No store pictures this month or last month.</p>';
   $('#list').innerHTML = rows.length ? rows.map((r) => {
     const late = r.client_at && Math.abs(new Date(r.at) - new Date(r.client_at)) > 120000;
     return `<div class="row">

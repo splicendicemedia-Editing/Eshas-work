@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>Counter poster · Miraal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter+Tight:wght@400;600&display=swap">
+<style>
+  :root { --ink: #1a1410; --ink-2: #5a5048; --gold: #a87a2c; --line: #e4dccf; --bg: #f6f1e8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'Inter Tight', system-ui, sans-serif; }
+  .tools { max-width: 720px; margin: 0 auto; padding: 20px 16px 8px; display: grid; gap: 12px; }
+  .tools h1 { margin: 0; font-size: 20px; }
+  .tools p { margin: 0; color: var(--ink-2); font-size: 15px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  button { height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--ink); background: var(--ink); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--ink); }
+  textarea { width: 100%; min-height: 96px; padding: 12px; border-radius: 12px; border: 1px solid var(--line); font: inherit; font-size: 15px; resize: vertical; background: #fff; color: var(--ink); }
+  .sheet { width: min(720px, calc(100% - 32px)); margin: 16px auto 40px; background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 40px 32px; text-align: center; display: grid; gap: 18px; justify-items: center; }
+  .sheet small { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
+  .sheet h2 { margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: clamp(34px, 7vw, 54px); line-height: 1.05; }
+  .sheet img { width: min(320px, 70vw); height: auto; image-rendering: pixelated; }
+  .scan { margin: -6px 0 0; font-weight: 600; font-size: 17px; }
+  ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; text-align: left; font-size: 18px; }
+  ol li { display: flex; gap: 12px; align-items: baseline; }
+  ol b { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 15px; flex: 0 0 auto; }
+  .link { font-size: 13px; color: var(--ink-2); word-break: break-all; }
+  .foot { font-size: 14px; color: var(--ink-2); }
+  .missing { max-width: 720px; margin: 60px auto; padding: 0 16px; text-align: center; }
+  @media print {
+    @page { size: A4; margin: 14mm; }
+    body { background: #fff; }
+    .tools { display: none; }
+    .sheet { border: 0; margin: 0 auto; width: 100%; padding: 10mm 0; gap: 8mm; }
+    .sheet img { width: 85mm; }
+    ol { font-size: 15pt; }
+  }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="poster.js?v=31"></script>
+</body>
+</html>
