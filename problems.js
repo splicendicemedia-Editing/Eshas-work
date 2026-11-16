@@ -1,5 +1,5 @@
 // The owner's problems page. The private code is kept in memory only: it is gone when the tab closes.
-import { TRYON_API, TRYON_API_ALT } from './config.js?v=29';
+import { TRYON_API, TRYON_API_ALT } from './config.js?v=30';
 const LOCAL_API = location.hostname === 'localhost' && new URLSearchParams(location.search).get('tryon');
 const APIS = LOCAL_API ? LOCAL_API.split(',') : [TRYON_API, ...(TRYON_API_ALT || [])].filter(Boolean);
 const $ = (s) => document.querySelector(s);

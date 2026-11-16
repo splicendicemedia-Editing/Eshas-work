@@ -7,10 +7,10 @@
 //   stored or uploaded; the camera is switched off and cleared when the scan ends.
 // - The measuring maths (incl. protection against background objects) lives in measure.js.
 
-import { measureFrame, combine, turnWidths, fromTurn, ROW_KEYS } from './measure.js?v=29';
-import { recommendSize, sizeSystems, whoFor, setWhoFor } from './profile.js?v=29';
-import { reportProblem } from './report.js?v=29';
-import { UNIT, fmtLen, withUnit, heightText, useUnits, heightToCm, heightBox } from './units.js?v=29';
+import { measureFrame, combine, turnWidths, fromTurn, ROW_KEYS } from './measure.js?v=30';
+import { recommendSize, sizeSystems, whoFor, setWhoFor } from './profile.js?v=30';
+import { reportProblem } from './report.js?v=30';
+import { UNIT, fmtLen, withUnit, heightText, useUnits, heightToCm, heightBox } from './units.js?v=30';
 
 const $ = (s) => document.querySelector(s);
 const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';

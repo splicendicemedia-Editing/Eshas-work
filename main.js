@@ -1,9 +1,9 @@
-import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=29';
-import { initCamera } from './camera.js?v=29';
-import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=29';
-import { initMirror } from './mirror.js?v=29';
-import { reportProblem } from './report.js?v=29';
-import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=29';
+import { STYLES, ALL, REGION_LABEL, FABRICS, COLORS, SIZES, PATTERNS, COLLECTIONS, PHOTOS, photoUrl, lookFor } from './catalog.js?v=30';
+import { initCamera } from './camera.js?v=30';
+import { initProfile, recommendSize, SIZE_ORDER } from './profile.js?v=30';
+import { initMirror } from './mirror.js?v=30';
+import { reportProblem } from './report.js?v=30';
+import { UNIT, fmtLen, withUnit, heightToCm, heightBox } from './units.js?v=30';
 
 // code errors anywhere on the page are noted too (a few per visit at most)
 let pageErrors = 0;
@@ -61,7 +61,7 @@ let scene = null;
 // The shop front does not show the 3D studio, so the heavy 3D engine is not downloaded there.
 const SHOP_FRONT = document.body.classList.contains('shop-front');
 if (SHOP_FRONT) hideLoader();
-else import('./scene.js?v=29')
+else import('./scene.js?v=30')
   .then(({ createScene }) => {
     scene = createScene({ canvas: $('#scene'), labelsEl: $('#labels'), onReady: hideLoader, studioLook: { ...studioLook } });
     observeStates();
@@ -96,13 +96,13 @@ function renderShop() {
   const grid = $('#shopGrid');
   if (!grid) return;
   $$('#shopTabs [data-for]').forEach((b) => { const on = b.dataset.for === shopFor; b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on)); });
-  grid.innerHTML = Object.entries(ALL).filter(([, v]) => (v.gender === 'men') === (shopFor === 'men'))
-    .map(([k, v]) => `<button class="shop-card" type="button" data-shop="${k}">
-      <img src="${photoUrl(k, 480)}" alt="${PHOTOS[k].alt}" loading="lazy" decoding="async">
-      <span class="info"><small>${REGION_LABEL[v.region]}</small><b>${v.label}</b><i>Try it on</i></span></button>`).join('')
-    + `<button class="shop-card shop-fabric" type="button" data-shop="fabric">
+  const fabricCard = `<button class="shop-card shop-fabric" type="button" data-shop="fabric">
       <span class="fab-art" aria-hidden="true"></span>
       <span class="info"><small>Unstitched</small><b>My own fabric</b><i>Try it stitched</i></span></button>`;
+  grid.innerHTML = fabricCard + Object.entries(ALL).filter(([, v]) => (v.gender === 'men') === (shopFor === 'men'))
+    .map(([k, v]) => `<button class="shop-card" type="button" data-shop="${k}">
+      <img src="${photoUrl(k, 480)}" alt="${PHOTOS[k].alt}" loading="lazy" decoding="async">
+      <span class="info"><small>${REGION_LABEL[v.region]}</small><b>${v.label}</b><i>Try it on</i></span></button>`).join('');
 }
 $('#shopTabs')?.addEventListener('click', (e) => { const b = e.target.closest('[data-for]'); if (b) { shopFor = b.dataset.for; renderShop(); } });
 $('#shopGrid')?.addEventListener('click', (e) => {

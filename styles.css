@@ -951,3 +951,9 @@ body.shop-front #scene, body.shop-front .scene-fallback, body.shop-front .scene-
 .plan .btn { justify-self: start; height: 46px; margin-top: auto; }
 .plans-contact { margin: 18px 0 0; color: var(--ink-2); font-size: 15.5px; }
 .plans-contact a, .faq-list a, .footer nav a[href^="mailto"] { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---------- first screen leads with the shopper's own fabric ---------- */
+.shop-cta { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 30px; }
+.shop-cta .btn { height: 52px; padding: 0 26px; font-size: 16px; }
+.shop-sub { font-family: var(--serif); font-weight: 400; font-size: clamp(22px, 3.4vw, 30px); margin: 0 0 14px; }
+.shop-head p { max-width: 34em; }
