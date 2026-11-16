@@ -1,32 +1,31 @@
 // "Create your profile" — preview version stores the profile only in this browser (localStorage).
 // No photos are ever part of a profile: just a name, height, fit preference and measurements.
 
-import { UNIT, fmtLen, heightToCm, heightField } from './units.js?v=27';
+import { UNIT, fmtLen, heightToCm, heightField } from './units.js?v=28';
 const $ = (s) => document.querySelector(s);
 const KEY = 'mirra.profile.v1';
 const LABELS = { bust: 'Bust', waist: 'Waist', hips: 'Hips', shoulder: 'Shoulders', inseam: 'Inseam', arm: 'Arm', neck: 'Neck', thigh: 'Thigh' };
-// Upper limits per size, in cm. Women and men are cut differently, so each has its own chart.
-// (There used to be one women's chart for everybody, which put nearly every man in the top size.)
-// Women: bust and hips decide. Men: chest decides. A clearly bigger waist moves either up one size.
+// European standard sizes (body measurements in the style of EN 13402; upper limits in cm), with the
+// UK and US numbers that shops print next to them. Each EU size is its own step, so nobody is pushed
+// into a letter that covers two or three sizes.
+// Women: bust and hips decide. Men: chest decides (EU size = half the chest in cm). A clearly bigger
+// waist moves either up one size.
 const CHARTS = {
   women: [
-    { size: 'XS', eu: '34', bust: 82, waist: 66, hips: 90 },
-    { size: 'S', eu: '36', bust: 88, waist: 72, hips: 96 },
-    { size: 'M', eu: '38', bust: 94, waist: 78, hips: 102 },
-    { size: 'L', eu: '40', bust: 100, waist: 84, hips: 108 },
-    { size: 'XL', eu: '42', bust: 106, waist: 90, hips: 114 },
-    { size: 'XXL', eu: '44+', bust: Infinity, waist: Infinity, hips: Infinity },
-  ],
+    [32, 78, 62, 86], [34, 82, 66, 90], [36, 86, 70, 94], [38, 90, 74, 98], [40, 94, 78, 102], [42, 98, 82, 106],
+    [44, 102, 86, 110], [46, 107, 91.5, 115], [48, 113, 98, 121], [50, 119, 104, 127], [52, 125, 110, 132], [54, Infinity, Infinity, Infinity],
+  ].map(([eu, bust, waist, hips]) => ({ eu, bust, waist, hips })),
   men: [
-    { size: 'XS', eu: '44', bust: 86, waist: 72 },
-    { size: 'S', eu: '46', bust: 94, waist: 80 },
-    { size: 'M', eu: '48-50', bust: 102, waist: 88 },
-    { size: 'L', eu: '52-54', bust: 110, waist: 96 },
-    { size: 'XL', eu: '56-58', bust: 118, waist: 106 },
-    { size: 'XXL', eu: '60+', bust: Infinity, waist: Infinity },
-  ],
+    [42, 86, 74], [44, 90, 78], [46, 94, 82], [48, 98, 86], [50, 102, 90], [52, 106, 94], [54, 110, 98],
+    [56, 114, 104], [58, 118, 110], [60, 122, 116], [62, Infinity, Infinity],
+  ].map(([eu, bust, waist]) => ({ eu, bust, waist })),
 };
-export const SIZE_ORDER = CHARTS.women.map((r) => r.size);
+// the letter printed on most labels for each EU size
+const LETTER = {
+  women: (eu) => (eu <= 34 ? 'XS' : eu === 36 ? 'S' : eu === 38 ? 'M' : eu === 40 ? 'L' : eu === 42 ? 'XL' : eu === 44 ? 'XXL' : eu === 46 ? '3XL' : eu === 48 ? '4XL' : '5XL'),
+  men: (eu) => (eu <= 42 ? 'XS' : eu <= 46 ? 'S' : eu <= 50 ? 'M' : eu <= 54 ? 'L' : eu <= 58 ? 'XL' : 'XXL'),
+};
+export const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 const WHO_KEY = 'mirra.who';
 /** 'women' or 'men': whose size chart to use (chosen on the size-scan card). */
 export const whoFor = () => { try { return localStorage.getItem(WHO_KEY) === 'men' ? 'men' : 'women'; } catch { return 'women'; } };
@@ -41,7 +40,22 @@ export function recommendSize(m, who = whoFor()) {
   let idx = men ? at('bust', m.bust) : Math.max(at('bust', m.bust), at('hips', m.hips));
   // waist is the least reliable camera value: only let it raise the size by one, and only with a clear margin
   if (m.waist && at('waist', m.waist - 3) > idx) idx = Math.min(idx + 1, table.length - 1);
-  return { ...table[idx], who: men ? 'men' : 'women' };
+  const eu = table[idx].eu, last = idx === table.length - 1 ? '+' : '';
+  const out = { size: LETTER[men ? 'men' : 'women'](eu), eu: `${eu}${last}`, who: men ? 'men' : 'women' };
+  if (men) {
+    out.uk = out.us = String(2 * Math.round(m.bust / 2.54 / 2)); // UK and US jackets and shirts go by chest in inches
+    if (m.waist) { out.trouserW = 2 * Math.round(m.waist / 2.54 / 2); out.trouserEu = out.trouserW + 16; }
+  } else {
+    out.uk = `${eu - 28}${last}`; out.us = `${Math.max(0, eu - 32)}${last}`;
+  }
+  return out;
+}
+/** The same size in each system, as short labels: ["EU 38", "UK 10", "US 6"] */
+export function sizeSystems(r) {
+  if (!r) return [];
+  const list = r.who === 'men' ? [`EU ${r.eu}`, `UK / US ${r.uk}`] : [`EU ${r.eu}`, `UK ${r.uk}`, `US ${r.us}`];
+  if (r.trouserW) list.push(`Trousers W${r.trouserW} · EU ${r.trouserEu}`);
+  return list;
 }
 
 function load() { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } }
@@ -67,7 +81,7 @@ export function initProfile({ getMeasures, getHeight, isMeasured, toast }) {
       ? entries.map(([k, v]) => `<div><small>${LABELS[k]}</small><b>${fmtLen(v)}<span>${UNIT}</span></b></div>`).join('')
       : '<p class="fine">No measurements yet. Tap Find my size.</p>';
     const r = recommendSize(draft.measurements);
-    rec.innerHTML = r ? `<small>Recommended size</small><b>${r.size} · EU ${r.eu}</b>` : '';
+    rec.innerHTML = r ? `<small>Recommended size</small><b>${r.size} · ${sizeSystems(r).join(' · ')}</b>` : '';
     src.textContent = draft.source === 'camera' ? 'From your camera scan' : 'Estimated from your height';
     src.className = `badge ${draft.source === 'camera' ? 'cam' : ''}`;
   }

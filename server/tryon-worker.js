@@ -18,6 +18,7 @@
 //                                             fal-ai/image-apps-v2/virtual-try-on
 //   FAL_EDIT_MODEL   text     model that stitches a suit from fabric, default: fal-ai/nano-banana/edit
 //   DAILY_LIMIT      text     real try-ons per visitor per day, default 5
+//   DAILY_BUDGET     text     the most real pictures paid for in one day by everyone together, default 300
 // Optional KV namespace bound as LIMITS: needed for the per-visitor daily limit to be enforced here.
 //
 // Problem log (optional):
@@ -120,7 +121,19 @@ async function sameSecret(a, b) {
 async function readProblems(env, request) {
   if (!env.DB || typeof env.ADMIN_KEY !== 'string' || env.ADMIN_KEY.length < 8) return [{ error: 'The problems page is not set up yet' }, 503];
   const given = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-  if (!given || !(await sameSecret(given, env.ADMIN_KEY))) { await new Promise((r) => setTimeout(r, 700)); return [{ error: 'Wrong code' }, 401]; }
+  // someone guessing the code: after 8 wrong tries in 15 minutes from one network address, stop answering
+  await ensureTable(env);
+  const who = (await visitorKey(request, 'admin')).split(':')[1].slice(0, 12);
+  const recent = new Date(Date.now() - 15 * 60000).toISOString();
+  const tries = await env.DB.prepare("SELECT COUNT(*) AS n FROM problems WHERE kind = 'server.wrong_code' AND visitor = ? AND at > ?").bind(who, recent).first();
+  if (((tries && tries.n) || 0) >= 8) return [{ error: 'Too many wrong codes. Wait 15 minutes.' }, 429];
+  if (!given || !(await sameSecret(given, env.ADMIN_KEY))) {
+    const at = new Date().toISOString();
+    await env.DB.prepare('INSERT INTO problems (at, day, kind, msg, place, visitor, isp, country) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(at, at.slice(0, 10), 'server.wrong_code', 'A wrong code was entered on the problems page', 'Problems page', who, clip((request.cf || {}).asOrganization || '', 60), clip((request.cf || {}).country || '', 4)).run();
+    await new Promise((r) => setTimeout(r, 700));
+    return [{ error: 'Wrong code' }, 401];
+  }
   await ensureTable(env);
   const now = new Date(), since = new Date(now.getTime() - 6 * 864e5).toISOString().slice(0, 10);
   const rows = (await env.DB.prepare('SELECT id, at, kind, msg, place, ver, device, net, isp, country, visitor, client_at, extra FROM problems ORDER BY id DESC LIMIT 300').all()).results;
@@ -160,7 +173,7 @@ export default {
       'Access-Control-Max-Age': '86400',
       Vary: 'Origin',
     };
-    const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+    const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' } });
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (request.method !== 'POST' && request.method !== 'GET') return json({ error: 'Use POST' }, 405);
@@ -175,11 +188,16 @@ export default {
       let target;
       try { target = new URL(new URL(request.url).searchParams.get('img')); } catch { return json({ error: 'Use POST' }, 405); }
       if (target.protocol !== 'https:') return json({ error: 'Only https picture links work' }, 400);
+      // never fetch from this server itself, a bare number address or a private network name
+      const th = target.hostname.toLowerCase();
+      if (th === new URL(request.url).hostname || /^[\d.]+$/.test(th) || th.includes(':') || th === 'localhost' || !th.includes('.') || /\.(local|internal|lan|home|corp|localhost)$/.test(th)) return json({ error: 'That link is not a picture we can use' }, 400);
       let pic;
       try { pic = await fetch(target.href, { headers: { Accept: 'image/*' }, redirect: 'follow' }); } catch { return json({ error: 'That picture could not be fetched' }, 502); }
-      const type = pic.headers.get('Content-Type') || '';
+      const type = (pic.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
       const size = parseInt(pic.headers.get('Content-Length') || '0', 10);
-      if (!pic.ok || !pic.body || !type.startsWith('image/') || size > MAX_PROXY_BYTES) return json({ error: 'That link is not a picture we can use' }, 400);
+      // photos only: an SVG or a web page dressed up as a picture could run code if opened on this address
+      const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif', 'image/heic', 'image/heif'];
+      if (!pic.ok || !pic.body || !PHOTO_TYPES.includes(type) || size > MAX_PROXY_BYTES) return json({ error: 'That link is not a picture we can use' }, 400);
       // count the bytes while reading, because a site can leave out the size or give a wrong one
       const reader = pic.body.getReader(), chunks = [];
       let total = 0;
@@ -190,7 +208,8 @@ export default {
         if (total > MAX_PROXY_BYTES) { await reader.cancel().catch(() => {}); return json({ error: 'That picture is too large' }, 400); }
         chunks.push(value);
       }
-      return new Response(new Blob(chunks), { status: 200, headers: { ...cors, 'Content-Type': type, 'Cache-Control': 'private, max-age=600' } });
+      return new Response(new Blob(chunks), { status: 200, headers: { ...cors, 'Content-Type': type, 'Cache-Control': 'private, max-age=600',
+        'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cross-Origin-Resource-Policy': 'cross-origin' } });
     }
 
     let body;
@@ -223,8 +242,13 @@ export default {
     } else return json({ error: 'The outfit picture is missing' }, 400);
 
     const limit = parseInt(env.DAILY_LIMIT || '5', 10) || 5;
-    let key = null, usedToday = 0, ipKey = null, usedIp = 0;
-    if (env.LIMITS) {
+    // the most real pictures this server will pay for in one day, whoever asks (text setting DAILY_BUDGET)
+    const budget = parseInt(env.DAILY_BUDGET || '300', 10) || 300;
+    let key = null, usedToday = 0, ipKey = null, usedIp = 0, allKey = null, usedAll = 0;
+    if (env.LIMITS) try {
+      allKey = `${new Date().toISOString().slice(0, 10)}:all`;
+      usedAll = parseInt((await env.LIMITS.get(allKey)) || '0', 10) || 0;
+      if (usedAll >= budget) { note('server.budget_reached', `daily budget of ${budget} pictures used`, wantsStitch ? 'Fabric' : 'Outfit'); return json({ error: 'Try-ons are finished for today', left: 0 }, 429); }
       const vid = /^[0-9a-f]{12}$/.test(body.visitor || '') ? body.visitor : '';
       key = await visitorKey(request, vid);
       usedToday = parseInt((await env.LIMITS.get(key)) || '0', 10) || 0;
@@ -234,12 +258,18 @@ export default {
       // count this try-on before the slow AI work, so several requests sent at once cannot all slip under the limit
       await env.LIMITS.put(key, String(usedToday + 1), { expirationTtl: 172800 });
       if (ipKey) await env.LIMITS.put(ipKey, String(usedIp + 1), { expirationTtl: 172800 });
+      await env.LIMITS.put(allKey, String(usedAll + 1), { expirationTtl: 172800 });
+    } catch {
+      // the counters cannot be read or written: do not make paid pictures without them
+      note('server.counters_down', 'the daily counters could not be used', wantsStitch ? 'Fabric' : 'Outfit');
+      return json({ error: 'Try-ons are paused for a moment' }, 503);
     }
     const left = key ? Math.max(0, limit - usedToday - 1) : null;
     // nothing was made: give the try-on back
     const refund = async () => {
       if (key) await env.LIMITS.put(key, String(usedToday), { expirationTtl: 172800 }).catch(() => {});
       if (ipKey) await env.LIMITS.put(ipKey, String(usedIp), { expirationTtl: 172800 }).catch(() => {});
+      if (allKey) await env.LIMITS.put(allKey, String(usedAll), { expirationTtl: 172800 }).catch(() => {});
     };
 
     let stitchedUrl = null;

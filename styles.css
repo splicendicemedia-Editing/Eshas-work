@@ -934,3 +934,20 @@ body.shop-front #scene, body.shop-front .scene-fallback, body.shop-front .scene-
 /* while a real picture is being made, the outfit pickers wait */
 .mirror-stage.is-busy .mr-tabs, .mirror-stage.is-busy .mr-colors, .mirror-stage.is-busy .mr-rail, .mirror-stage.is-busy .mr-fabric,
 .mirror-stage.is-busy .mr-seg, .mirror-stage.is-busy .mr-chip { pointer-events: none; opacity: .45; }
+/* ---------- size in each system ---------- */
+.size-sys { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 8px 0 6px; }
+.size-sys i { font-style: normal; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line-2); font-size: 14px; font-weight: 600; color: var(--ink); background: rgba(255, 255, 255, .06); }
+
+/* ---------- plans ---------- */
+.plans { padding: 28px 0 56px; }
+.plans-h { font-family: var(--serif); font-weight: 400; font-size: clamp(28px, 4.4vw, 42px); margin: 0 0 18px; }
+.plan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.plan { display: grid; gap: 10px; align-content: start; padding: 22px; border-radius: 20px; background: #fff; border: 1px solid var(--line); }
+.plan-main { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+.plan small { font-size: 12.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
+.plan b { font-family: var(--serif); font-weight: 400; font-size: 26px; line-height: 1.15; }
+.plan ul { list-style: none; margin: 4px 0 8px; padding: 0; display: grid; gap: 6px; color: var(--ink-2); font-size: 15px; }
+.plan li::before { content: '✓  '; color: var(--good); font-weight: 700; }
+.plan .btn { justify-self: start; height: 46px; margin-top: auto; }
+.plans-contact { margin: 18px 0 0; color: var(--ink-2); font-size: 15.5px; }
+.plans-contact a, .faq-list a, .footer nav a[href^="mailto"] { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }

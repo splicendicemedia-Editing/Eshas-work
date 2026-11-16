@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=27">
+  <link rel="stylesheet" href="styles.css?v=28">
   <script type="importmap">
     { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -39,6 +39,7 @@
     <a class="logo" href="#top" aria-label="Miraal home"><span class="logo-mark"></span>MIRAAL</a>
     <nav class="nav-links">
       <a href="#shop">Shop</a>
+      <a href="#plans">Plans</a>
       <a href="#faq">Help</a>
     </nav>
     <div class="nav-actions">
@@ -62,6 +63,34 @@
           <button class="btn btn-ghost shop-size" type="button" id="shopSize" data-open-camera>Find my size</button>
         </div>
         <div class="shop-grid" id="shopGrid"></div>
+      </div>
+    </section>
+
+    <!-- PLANS -->
+    <section id="plans" class="solid plans">
+      <div class="wrap">
+        <h2 class="plans-h">Plans</h2>
+        <div class="plan-grid">
+          <article class="plan">
+            <small>Free</small>
+            <b>5 try-ons a day</b>
+            <ul><li>Every outfit</li><li>Your own fabric</li><li>Find my size</li></ul>
+            <a class="btn btn-ghost" href="#shop">Start now</a>
+          </article>
+          <article class="plan plan-main">
+            <small>Miraal Plus · subscription</small>
+            <b>More try-ons every month</b>
+            <ul><li>For people who shop often</li><li>Paid monthly</li><li>Email us and we set it up for you</li></ul>
+            <a class="btn btn-primary" href="mailto:info@sndautomations.co?subject=Miraal%20Plus%20subscription&body=Hello%2C%0A%0AI%20would%20like%20Miraal%20Plus.%0A%0AMy%20name%3A%20%0AMy%20country%3A%20%0A">Get Plus</a>
+          </article>
+          <article class="plan">
+            <small>For stores</small>
+            <b>Miraal in your shop</b>
+            <ul><li>Your own outfits and photos</li><li>Try-on for your customers</li><li>Size finder with your size chart</li></ul>
+            <a class="btn btn-primary" href="mailto:info@sndautomations.co?subject=Miraal%20for%20my%20store&body=Hello%2C%0A%0AI%20would%20like%20Miraal%20in%20my%20store.%0A%0AStore%20name%3A%20%0AWebsite%20or%20Instagram%3A%20%0AWhat%20we%20sell%3A%20%0AOrders%20a%20month%3A%20%0AMy%20name%20and%20phone%3A%20%0A">Apply for your store</a>
+          </article>
+        </div>
+        <p class="plans-contact">Questions? Write to <a href="mailto:info@sndautomations.co">info@sndautomations.co</a></p>
       </div>
     </section>
 
@@ -366,6 +395,8 @@
           <details><summary>Is my photo kept?</summary><p>No. It is sent to our try-on partner to make your picture. Miraal does not keep it.</p></details>
           <details><summary>How many outfits can I try?</summary><p>5 free try-ons a day.</p></details>
           <details><summary>How do I find my size?</summary><p>Tap Find my size, enter your height, face the camera, then turn around once with your hands on your head. It takes about 30 seconds. Sizes are estimates.</p></details>
+          <details><summary>Which sizes do you show?</summary><p>European sizes, with the UK and US size next to them. For men you also get a trouser waist.</p></details>
+          <details><summary>How do I contact you?</summary><p>Write to <a href="mailto:info@sndautomations.co">info@sndautomations.co</a>.</p></details>
           <details><summary>Can I try my own fabric?</summary><p>Yes. Tap My fabric, add a picture of the fabric and choose how it is stitched.</p></details>
         </div>
       </div>
@@ -391,7 +422,7 @@
     <footer class="solid footer">
       <div class="wrap foot-grid">
         <a class="logo" href="#top"><span class="logo-mark"></span>MIRAAL</a>
-        <nav><a href="#shop">Shop</a><a href="#faq">Help</a></nav>
+        <nav><a href="#shop">Shop</a><a href="#plans">Plans</a><a href="#faq">Help</a><a href="mailto:info@sndautomations.co">info@sndautomations.co</a></nav>
         <small>© <span id="yr"></span> Miraal. Concept preview.</small>
       </div>
     </footer>
@@ -663,6 +694,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="main.js?v=27"></script>
+  <script type="module" src="main.js?v=28"></script>
 </body>
 </html>

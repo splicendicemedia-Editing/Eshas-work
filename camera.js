@@ -7,10 +7,10 @@
 //   stored or uploaded; the camera is switched off and cleared when the scan ends.
 // - The measuring maths (incl. protection against background objects) lives in measure.js.
 
-import { measureFrame, combine, turnWidths, fromTurn, ROW_KEYS } from './measure.js?v=27';
-import { recommendSize, whoFor, setWhoFor } from './profile.js?v=27';
-import { reportProblem } from './report.js?v=27';
-import { UNIT, fmtLen, withUnit, heightText, useUnits, heightToCm, heightBox } from './units.js?v=27';
+import { measureFrame, combine, turnWidths, fromTurn, ROW_KEYS } from './measure.js?v=28';
+import { recommendSize, sizeSystems, whoFor, setWhoFor } from './profile.js?v=28';
+import { reportProblem } from './report.js?v=28';
+import { UNIT, fmtLen, withUnit, heightText, useUnits, heightToCm, heightBox } from './units.js?v=28';
 
 const $ = (s) => document.querySelector(s);
 const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
@@ -602,8 +602,9 @@ export function initCamera({ getHeight, setHeight, onMeasured, onSave, onTry, on
     lastResult.measured = measured;
     const label = who === 'men' ? 'Men’s size' : 'Women’s size';
     $('#ssSize').innerHTML = !size ? '<small>Your measurements</small>'
-      : measured ? `<small>${label}</small><b>${size.size}</b><span>EU ${size.eu} · based on your ${who === 'men' ? 'chest and waist' : 'chest, waist and hips'}</span>`
-      : `<small>Estimated ${label.toLowerCase()}</small><b>${size.size}</b><span>EU ${size.eu} · guessed from your height only. Scan again for your real size</span>`;
+      : `<small>${measured ? label : `Estimated ${label.toLowerCase()}`}</small><b>${size.size}</b>`
+        + `<div class="size-sys">${sizeSystems(size).map((t) => `<i>${t}</i>`).join('')}</div>`
+        + `<span>${measured ? `Based on your ${who === 'men' ? 'chest and waist' : 'chest, waist and hips'}` : 'Guessed from your height only. Scan again for your real size'}</span>`;
     $('#ssTry').textContent = size ? `Shop in size ${size.size}` : 'Back to the shop';
     resultEl.innerHTML = LIVE_KEYS.map(([k, l]) => (k === 'height' ? `<div><dt>${l}</dt><dd>${heightText(result[k])}</dd></div>`
       : `<div><dt>${l}</dt><dd>${fmtLen(result[k])}<span>${UNIT}</span></dd></div>`)).join('');

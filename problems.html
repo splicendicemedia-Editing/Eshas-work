@@ -72,7 +72,7 @@
 </main>
 
 <script type="module">
-  import { TRYON_API, TRYON_API_ALT } from './config.js?v=27';
+  import { TRYON_API, TRYON_API_ALT } from './config.js?v=28';
   const LOCAL_API = location.hostname === 'localhost' && new URLSearchParams(location.search).get('tryon');
   const APIS = LOCAL_API ? LOCAL_API.split(',') : [TRYON_API, ...(TRYON_API_ALT || [])].filter(Boolean);
   const $ = (s) => document.querySelector(s);
@@ -108,6 +108,9 @@
     'server.ai_failed': ['Server: the AI did not return a picture', 'Seen by the server itself.'],
     'server.stitch_failed': ['Server: the suit could not be stitched from the fabric picture', 'Seen by the server itself.'],
     'server.ai_unreachable': ['Server: the AI service could not be reached', 'fal.ai was down or the key or credit has a problem.'],
+    'server.wrong_code': ['A wrong code was entered on this page', 'If it was not you, someone is guessing. After 8 wrong tries the page locks for 15 minutes.'],
+    'server.budget_reached': ['The daily spending cap was reached', 'No more real pictures were made that day. Raise DAILY_BUDGET in Cloudflare if this is real demand.'],
+    'server.counters_down': ['The daily counters could not be used', 'Try-ons were paused so nothing was spent without a limit. Tell Claude if it repeats.'],
     'server.limit_reached': ['A visitor reached the daily limit', 'Not a fault. Someone wanted more than the free try-ons.'],
   };
   const name = (k) => (KINDS[k] || [k])[0];

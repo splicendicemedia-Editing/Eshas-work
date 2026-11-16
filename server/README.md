@@ -55,3 +55,9 @@ To read them, open `problems.html` on the site and enter your private code. To s
 3. Save and deploy.
 
 Without `ADMIN_KEY` the notes are still stored, but nobody can read them through the page.
+
+## Spending cap
+
+The server stops making real pictures once 300 have been made in one day by everyone together, so a script or a busy day cannot run up a large fal.ai bill. To change the number, add a Text variable `DAILY_BUDGET` in the Worker's settings (for example `600`). At about $0.075 a picture, 300 is at most about $22 a day.
+
+Each phone gets 5 a day, and one network address gets at most 30.
